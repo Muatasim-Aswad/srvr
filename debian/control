@@ -1,0 +1,20 @@
+Source: srvr
+Section: admin
+Priority: optional
+Maintainer: Muatasim Aswad <malasoad2021@gmail.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3 (>= 3.11), pandoc
+Standards-Version: 4.7.4
+Rules-Requires-Root: no
+Homepage: https://github.com/Muatasim-Aswad/srvr
+
+Package: srvr
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3 (>= 3.11), git, sudo, zstd
+Recommends: man-db
+Suggests: docker.io, docker-compose, smartmontools
+Description: lightweight CLI for a private Compose home server
+ Manage services on one Docker Compose host with health checks, controlled
+ updates, automatic rollback, data backups, and restores.
+ .
+ Includes offline setup, backup, monitoring, and operation guides. Docker
+ and private access are configured separately using the bootstrap guide.

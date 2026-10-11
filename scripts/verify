@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+exec uv run --locked --isolated --python "${SRVR_VERIFY_PYTHON:-3.13.16}" \
+  python scripts/verify.py "$@"

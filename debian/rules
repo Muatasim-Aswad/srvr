@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	python3 scripts/release.py stamp
+	python3 scripts/build_docs.py --output .build
+
+override_dh_auto_test:
+	python3 -m unittest
+
+override_dh_install:
+	dh_install -X__pycache__ -X.pyc
+
+override_dh_python3:
+	dh_python3 /usr/lib/srvr

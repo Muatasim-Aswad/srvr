@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+snapshot=$(mktemp -d)
+trap 'rm -rf -- "$snapshot"' EXIT
+python3 "$root/scripts/release.py" stage --output "$snapshot"
+epoch=$(python3 -c 'import json,sys; from datetime import datetime; print(int(datetime.fromisoformat(json.load(open(sys.argv[1]))["build_time"]).timestamp()))' "$snapshot/srvr/build.json")
+mkdir -p "$root/dist"
+docker build -t srvr-package-builder:trixie -f "$snapshot/packaging/Dockerfile" "$snapshot/packaging"
+docker run --rm --user "$(id -u):$(id -g)" \
+  --env "SOURCE_DATE_EPOCH=$epoch" --env TZ=UTC \
+  --mount "type=bind,src=$snapshot,dst=/source,readonly" \
+  --mount "type=bind,src=$root/dist,dst=/out" \
+  srvr-package-builder:trixie bash -euo pipefail -c '
+    work=$(mktemp -d)
+    mkdir "$work/src"
+    cp -a --no-preserve=ownership /source/. "$work/src/"
+    cd "$work/src"
+    dpkg-buildpackage --build=binary --no-sign
+    lintian --fail-on error ../srvr_*.deb
+    package_name=$(basename ../srvr_*.deb)
+    cp ../srvr_*.{deb,buildinfo,changes} /out/
+    cd /out
+    sha256sum "$package_name" > SHA256SUMS
+  '
+python3 "$root/scripts/release.py" check-package "$root/dist/srvr_$(python3 -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$snapshot/pyproject.toml")-1_all.deb"

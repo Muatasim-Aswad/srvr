@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">srvr — an opinionated home-server setup and lightweight CLI</title>
+  <desc id="description">An opinionated setup and CLI for a private home server, with private access, backups, and health alerts. A terminal example shows srvr checking an app's health.</desc>
+  <rect width="1280" height="640" fill="#101c22"/>
+  <path d="M80 100h1120M80 540h1120" stroke="#304650" stroke-width="2"/>
+  <text x="80" y="238" font-family="monospace" font-size="116" font-weight="bold" fill="#faf8ef">srvr<tspan fill="#8bcbb6">_</tspan></text>
+  <text x="84" y="315" font-family="sans-serif" font-size="34" fill="#faf8ef">An opinionated home-server setup.</text>
+  <text x="84" y="360" font-family="sans-serif" font-size="30" fill="#d1ddd9">A lightweight CLI to keep it running.</text>
+  <text x="84" y="435" font-family="monospace" font-size="24" fill="#8bcbb6">$ srvr health notes</text>
+  <text x="84" y="475" font-family="monospace" font-size="24" fill="#8aada8">notes: healthy</text>
+  <text x="84" y="586" font-family="sans-serif" font-size="22" fill="#8aada8">Private access · Backups · Health alerts</text>
+</svg>

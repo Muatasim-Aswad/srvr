@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify or recover
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: 2026.10.3
+      - name: Build the tagged source and run every gate
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) exit 1 ;; esac
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
+          python3 scripts/release.py prepare --ref "$TAG" --output dist/release
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-bundle
+          path: dist/release/
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified artifacts
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: 2026.10.3
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-bundle
+          path: dist/release
+      - name: Verify and smoke-test downloaded artifacts
+        run: |
+          python3 scripts/release.py verify-bundle --output dist/release
+          docker build -t srvr-package-builder:trixie packaging
+          scripts/test-deb "dist/release/srvr_$(python3 -c 'import srvr; print(srvr.__version__)')-1_all.deb"
+      - name: Publish the complete draft
+        run: |
+          if gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            if test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["isDraft"])' "$RUNNER_TEMP/release.json")" = False; then
+              gh release download "$TAG" --dir "$RUNNER_TEMP/published"
+              python3 scripts/release.py verify-bundle --output "$RUNNER_TEMP/published"
+              for artifact in dist/release/*; do cmp "$artifact" "$RUNNER_TEMP/published/$(basename "$artifact")"; done
+              exit 0
+            fi
+          else
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" --notes-file dist/release/RELEASE_NOTES.md
+          fi
+          gh release upload "$TAG" dist/release/* --clobber
+          gh release edit "$TAG" --draft=false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}

@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+existing=$(git config --get core.hooksPath || true)
+if [ -n "$existing" ] && [ "$existing" != .githooks ]; then
+  echo "Existing hooksPath is $existing; integrate the checked-in hooks before replacing it." >&2
+  exit 1
+fi
+git -C "$root" config --local core.hooksPath .githooks
+echo "Enabled .githooks for this checkout."

@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+revision=${1:?Usage: scripts/verify-ref index-or-commit}
+snapshot=$(mktemp -d)
+trap 'rm -rf -- "$snapshot"' EXIT
+if [ "$revision" = index ]; then
+  git diff --cached --check
+  git checkout-index --all --prefix="$snapshot/"
+else
+  git archive "$revision" | tar --extract --directory "$snapshot"
+fi
+while read -r git_variable; do
+  unset "$git_variable"
+done < <(git rev-parse --local-env-vars)
+cd "$snapshot"
+exec_result=0
+scripts/verify || exec_result=$?
+exit "$exec_result"

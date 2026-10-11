@@ -1,0 +1,6 @@
+srvr usr/lib/srvr
+pyproject.toml usr/lib/srvr
+bin/srvr usr/lib/srvr/bin
+.build/docs/* usr/share/doc/srvr
+examples/service.toml usr/share/doc/srvr/examples
+LICENSE usr/share/doc/srvr

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_sha" != 0000000000000000000000000000000000000000 ]; then
+    mise exec -- scripts/verify-ref "$local_sha"
+  fi
+done

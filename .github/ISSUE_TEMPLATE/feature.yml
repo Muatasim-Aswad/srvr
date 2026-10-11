@@ -1,0 +1,13 @@
+name: Feature request
+description: Propose a focused improvement within srvr's scope.
+body:
+  - type: markdown
+    attributes:
+      value: Use synthetic examples; remove private and personal information. Usage questions belong in Discussions.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and proposed behavior
+      description: Explain the workflow, expected improvement, and relevant recovery or compatibility implications.
+    validations:
+      required: true
