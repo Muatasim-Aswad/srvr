@@ -1,0 +1,21 @@
+[tools]
+python = "3.13.16"
+uv = "0.12.24"
+actionlint = "1.7.11"
+gitleaks = "8.30.1"
+
+[tasks.verify]
+description = "Lint, format, type-check, validate docs/workflows, and run default tests"
+run = "scripts/verify"
+
+[tasks.verify-all]
+description = "Run verification plus real Docker workflows and Debian package checks"
+run = "scripts/verify --all"
+
+[tasks.install-hooks]
+description = "Enable staged-commit and outgoing-commit verification for this checkout"
+run = "scripts/install-hooks"
+
+[tasks.release-check]
+description = "Rehearse a release from a committed ref without publishing"
+run = "python3 scripts/release.py prepare"

@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+package=${1:?Usage: scripts/test-deb path/to/srvr.deb}
+package=$(realpath -- "$package")
+docker run --rm \
+  --mount "type=bind,src=$package,dst=/package.deb,readonly" \
+  --mount "type=bind,src=$root/packaging,dst=/checks,readonly" \
+  srvr-package-builder:trixie bash -euo pipefail -c '
+    printf "%s\n" "path-include /usr/share/doc/srvr/*" "path-include /usr/share/man/man1/srvr.1*" \
+      > /etc/dpkg/dpkg.cfg.d/zz-srvr-test-docs
+    apt-get install -y --no-install-recommends /package.deb
+    python3 /checks/test-installed.py
+    mkdir -p /home/admin/.config/srvr /home/admin/.local/share/notes
+    printf "sentinel\n" > /home/admin/.config/srvr/preserved
+    printf "sentinel\n" > /home/admin/.local/share/notes/preserved
+    chown -R 65534:65534 /home/admin
+    chmod 600 /home/admin/.config/srvr/preserved /home/admin/.local/share/notes/preserved
+    dpkg-deb --raw-extract /package.deb /tmp/upgrade
+    sed -i "s/^Version: .*/Version: $(dpkg-deb --field /package.deb Version)+test1/" /tmp/upgrade/DEBIAN/control
+    dpkg-deb --build --root-owner-group /tmp/upgrade /tmp/upgrade.deb
+    apt-get install -y --no-install-recommends /tmp/upgrade.deb
+    python3 /checks/test-installed.py
+    for action in remove purge; do
+      dpkg --"$action" srvr
+      test ! -e /usr/bin/srvr
+      test ! -d /usr/lib/srvr
+      test ! -d /usr/share/doc/srvr
+      for file in /home/admin/.config/srvr/preserved /home/admin/.local/share/notes/preserved; do
+        test "$(cat "$file")" = sentinel
+        test "$(stat -c %u:%g:%a "$file")" = 65534:65534:600
+      done
+      if [ "$action" = remove ]; then dpkg --install /package.deb; fi
+    done
+    echo "Install, upgrade, removal, and user data preservation passed."
+  '

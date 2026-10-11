@@ -1,0 +1,22 @@
+# Copy to ~/.config/srvr/services/<name>.toml; the file name is the service name.
+
+description = "Short description shown by `srvr info`"   # optional
+
+# "git": built from a Git checkout in workdir (needs branch)
+# "image": pinned published image; `srvr update --image` edits the first compose file's image line
+kind = "git"
+branch = "main"                                   # git only: default deploy branch
+# update_component = "app"                        # image only: default component to upgrade
+
+workdir = "/home/admin/services/example"            # Compose project directory (the checkout)
+project = "example"                                # optional; defaults to the service name
+compose_files = ["compose.yaml"]                   # optional; relative to workdir or absolute
+env_file = "/home/admin/.config/example/config.env" # optional; Compose --env-file (interpolation)
+config_files = ["/home/admin/.config/example/config.env"]  # optional; defaults to [env_file]
+
+migrate = "migrate"                                # optional; one-off Compose service run before start
+data = ["/home/admin/.local/share/example"]         # optional; directories that backups archive
+
+health = "http://127.0.0.1:8080/health"            # optional; without it, container state is used
+url = "https://example.<tailnet>.ts.net"         # optional; private HTTPS URL
+version_url = "http://127.0.0.1:8080/version.json" # optional, git only; `srvr health` checks it serves the checkout's commit

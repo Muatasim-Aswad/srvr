@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/Muatasim-Aswad/srvr/blob/main/SECURITY.md
+    about: Report vulnerabilities privately; remove credentials and personal data.
+  - name: Questions
+    url: https://github.com/Muatasim-Aswad/srvr/discussions
+    about: Ask usage questions in Discussions.

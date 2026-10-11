@@ -1,0 +1,15 @@
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+.build/
+dist/
+docs/plans/
+*.local.md
+srvr/build.json
+.venv/
+debian/.debhelper/
+debian/srvr/
+debian/files
+debian/*.debhelper
+debian/*.log
+debian/*.substvars

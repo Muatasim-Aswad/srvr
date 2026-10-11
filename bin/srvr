@@ -1,0 +1,11 @@
+#!/usr/bin/python3
+"""Launcher: run srvr from its source checkout (this file may be reached via a symlink)."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from srvr.cli import main  # noqa: E402
+
+raise SystemExit(main())

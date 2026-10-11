@@ -1,0 +1,25 @@
+name: Bug report
+description: Report unexpected behavior in the supported setup.
+body:
+  - type: markdown
+    attributes:
+      value: Remove credentials, private hostnames, URLs, service data, and personal information. Report vulnerabilities through SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version and environment
+      description: srvr version/commit, Linux, Python, Docker Engine, and Compose versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal steps using synthetic configuration, expected behavior, and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Redacted output
+      description: Review logs before posting; raw Compose config can contain secrets.

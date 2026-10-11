@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    groups:
+      actions:
+        patterns: ["*"]
+    cooldown:
+      default-days: 3
+    schedule:
+      interval: weekly
+  - package-ecosystem: uv
+    directory: /
+    groups:
+      python:
+        patterns: ["*"]
+    cooldown:
+      default-days: 3
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /packaging
+    groups:
+      containers:
+        patterns: ["*"]
+    cooldown:
+      default-days: 3
+    schedule:
+      interval: weekly
