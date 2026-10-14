@@ -28,11 +28,12 @@ Install [mise](https://mise.jdx.dev/getting-started.html), then use the same gat
 mise trust
 mise install
 mise run install-hooks
-mise run verify       # lint, format, types, docs, workflow syntax, unit/regression tests
-mise run verify-all   # also real Docker deployments and Debian package lifecycle
+mise run verify
 ```
 
-`mise.toml` pins the tools; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
+`mise run verify` checks lint, formatting, types, docs, workflow syntax, and unit/regression tests. Run `mise run verify-all` when changing deployment, recovery, or packaging; it also exercises real Docker deployments and the Debian package lifecycle.
+
+[`mise.toml`](../mise.toml) pins tools and defines task arguments; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
 
 CI runs the default gate on Python 3.11, 3.13 and 3.14, plus separate Docker, Debian, and push/PR-range secret-scan jobs. The aggregate **Required checks** job fails if any job fails; use that check in branch protection. The default gate scans an allowlisted source snapshot with redacted gitleaks output. Package artifacts are retained for review. Actions use commit pins and read-only permissions except the release publishing job; Dependabot groups weekly updates by ecosystem with a three-day version cooldown. Security updates remain immediate. CI never deploys a server.
 
@@ -40,8 +41,8 @@ For a focused check:
 
 ```sh
 python3 -m unittest
-mise exec -- scripts/verify --docker-only
-mise exec -- scripts/verify --package-only
+mise run verify -- --docker-only
+mise run verify -- --package-only
 ```
 
 Read the repository's `AGENTS.md` for contribution and safety rules. Regression tests cover failed directory switches, extraction errors, interruption/retry recovery, snapshot replacement, stale confirmations, lock contention and protected rollback backups.
@@ -57,8 +58,7 @@ To select compatibility tools without changing the system installation, set `SRV
 On a development machine with Docker access:
 
 ```sh
-scripts/build-deb
-scripts/test-deb dist/srvr_0.2.0-1_all.deb
+mise run verify -- --package-only
 ```
 
 The builder copies only `packaging/source-files.txt` entries into a temporary source snapshot, installs build tools in a digest-pinned Debian 13 container using a fixed Debian package snapshot, runs unit tests, generates offline HTML/Markdown and `srvr.1`, builds with debhelper, and checks lintian and exact package contents. Artifacts and `SHA256SUMS` go in `dist/`. Builds run as your UID/GID; they do not install anything on the host. Refresh the base digest and Debian snapshot together when updating build tools.
@@ -74,10 +74,10 @@ On Debian, the native build needs `build-essential`, `dpkg-dev`, `debhelper`, `d
 Rehearse a committed version without publishing:
 
 ```sh
-mise run release-check -- --ref HEAD --output dist/candidate
+mise run release-check
 ```
 
-The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
+The [release driver](../scripts/release.py) defaults to `HEAD` and `dist/release`; use `--ref` or `--output` after `--` to select another candidate or output directory. The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
 
 When release publication is authorized, tag the reviewed commit `vX.Y.Z` and push that tag. The release workflow requires an exact version match, repeats the rehearsal from the tag, downloads and tests the CI artifacts, then uploads the complete bundle to a draft and publishes it. Only that final job receives write permission. Enable immutable releases before tagging. Recover failed publication by rerunning the workflow for the existing tag; do not move the tag or rebuild from `main`. An apt repository and a srvr container image are not provided.
 
