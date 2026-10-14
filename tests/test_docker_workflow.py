@@ -92,7 +92,7 @@ class DockerWorkflowTest(TempDirTest):
             *self.tags,
             *(
                 f"{namespace}/{self.project}-{name}:latest"
-                for namespace in ("srvr-prev", "srvr-preparing")
+                for namespace in ("srvr-prev", "srvr-preparing", "srvr-ready")
                 for name in ("app", "db")
             ),
         ]
@@ -128,7 +128,7 @@ class DockerWorkflowTest(TempDirTest):
         ):
             result = deploy(self.ctx, self.service_, plan, backup=True)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][-3:], ["pull", "--ignore-buildable", "app"])
+        self.assertEqual(calls[0][-2:], ["pull", "app"])
         return result
 
     def test_update_preserves_database_and_manual_rollback_survives_tag_drift(self) -> None:

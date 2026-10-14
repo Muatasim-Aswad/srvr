@@ -8,12 +8,7 @@ Read [Development](docs/development.md), [Updates](docs/updates.md), and the rep
 
 Ask usage questions in [Discussions](https://github.com/Muatasim-Aswad/srvr/discussions). Fork the repository and send a focused pull request to `main`.
 
-```sh
-mise trust
-mise install
-mise run install-hooks
-mise run verify
-```
+Follow the [development setup](docs/development.md#development) for the pinned toolchain, hooks, and shared local/CI gate.
 
 Run `mise run verify-all` for deployment, recovery, or packaging changes. It needs local Docker access and runs disposable deployment and Debian package checks. Use isolated test registries and data; keep development commands away from live services.
 

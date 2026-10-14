@@ -15,7 +15,9 @@ srvr info --all
 srvr backup --all
 ```
 
-For every stateful app, confirm `data` includes its database, attachments, and other persistent files. Named Docker volumes need an explicit backup plan; this recipe only copies registered directories.
+For every stateful app, confirm registered `data` directories and `data_volumes` include its database, attachments, and other persistent files. Register actual resolved Docker volume names with `srvr add --data-volume NAME` or `data_volumes = [...]`; volume-only services are supported. Unregistered/anonymous volumes, external databases and shared data are outside this recipe's coverage.
+
+Named-volume recovery supports plain `local` volumes without driver options, through a local Unix-socket Docker daemon on a supported local filesystem. Remote drivers/endpoints, mounted/nested storage and volumes used by another registration/project or external container are refused. srvr resolves mountpoints itself; never register `/var/lib/docker` or volume mountpoints as data directories. Volume identity and exclusive stopped ownership are checked before copying and restoring. The Debian setup supplies GNU coreutils/findutils and util-linux (`findmnt`, `mountpoint`) alongside tar/zstd.
 
 | Include | Why |
 |---|---|
@@ -158,29 +160,26 @@ sudo /usr/local/sbin/srvr-restic restore SNAPSHOT-ID --target /root/srvr-restore
 
 The restored data is under `/root/srvr-restore/var/backups/srvr/services/notes/`, followed by its original absolute path. Check files, numeric owners, permissions, and database integrity. Start a disposable app with this copy and matching code/image versions on a different loopback port. Disable external sync and other side effects during the test.
 
-For an actual recovery, stop the service, move its current data aside, and copy the tested data back as root with `cp -a`. Repeat for every registered data directory. For a service with one directory:
+For an actual recovery, give srvr the complete tested service snapshot directory, including its `.srvr-data.json` manifest when it contains named volumes:
 
 ```sh
-srvr stop notes
-sudo mv /home/admin/.local/share/notes \
-  /home/admin/.local/share/notes.pre-restore-$(date -u +%Y%m%dT%H%M%SZ)
-sudo cp -a /root/srvr-restore/var/backups/srvr/services/notes/home/admin/.local/share/notes \
-  /home/admin/.local/share/
-srvr start notes
+srvr restore notes --snapshot /root/srvr-restore/var/backups/srvr/services/notes
 srvr health notes
 ```
 
-Keep the moved-aside data until you have verified the app's contents. For a local archive, use `srvr restore notes latest` instead.
+srvr stops the project, stages all directories and volumes, restores numeric ownership/modes, retains previous data and checks readiness. Keep the set-aside data until you have verified the app's contents. For a local archive, use `srvr restore notes latest` instead. Do not manually rename a Docker volume's `_data` root or remove a Docker volume.
 
-**Lost host:** follow [Bootstrap](bootstrap.md), recover backup credentials from the vault, restore app code/config and data with original ownership, and selectively reapply `/etc` settings. Authenticate Tailscale again and recreate read-only Git deploy keys. If restored srvr state contains `images.compose.json`, captured image IDs may not exist: pull/build the registered versions, remove only unavailable runtime pins, then start. Match app versions to the restored data; see [image recovery](updates.md#how-update-works).
+**Lost host:** follow [Bootstrap](bootstrap.md), recover backup credentials from the vault, restore app code/config and registry with original ownership, and selectively reapply `/etc` settings. Recreate the same registered plain local volume names/project ownership before restoring their data. Archives/snapshots map those names into the new daemon's validated data root; unknown mappings and same-host replaced volume identities are refused. Authenticate Tailscale again and recreate read-only Git deploy keys. If restored srvr state contains `images.compose.json`, captured image IDs may not exist: pull/build the registered versions, remove only unavailable runtime pins, then start. Match app versions to the restored data; see [image recovery](updates.md#image-pins-and-host-recovery).
 
 **Check:** you can open the restored app and recover the backup password without the original server.
 
 ## Local restore recovery
 
-`srvr restore` verifies the archive and extracts every directory beside its destination before moving live data. It journals the switch, retains old data under `*.pre-restore-*`, and recovers earlier moves if a later one fails. Data directories must be distinct and must not contain one another. Plan space for the staged archive contents and the old data.
+`srvr restore` verifies an archive's checksum or snapshot's identity/content and stages every source beside its destination before switching live data. Directory restores rename directories; named-volume restores journal movement of contents while preserving the `_data` root identity. Old data remains under `*.pre-restore-*`, and failed installed contents may remain under `*.failed-restore-*`. Ownership and modes are preserved. Data directories must be distinct and must not contain one another or overlap Docker storage. Plan space for staged contents and retained data.
 
-If srvr is interrupted during a restore, retry `srvr restore SERVICE BACKUP` with the same registered data paths. It first recovers the unfinished switch, then attempts the restore. If recovery fails, the service stays stopped and the journal remains at `~/.local/share/srvr/backups/SERVICE/.restore.json`; start, restart and other mutations are blocked. Keep the journal and set-aside data until recovery succeeds. Check journal state after a host reboot before starting containers through Docker directly; Docker restart policies bypass srvr's guard.
+If srvr is interrupted during a restore, retry `srvr restore SERVICE BACKUP` or the same `--snapshot DIR` with unchanged registered data paths and volume identities. It first recovers the unfinished switch, then attempts the restore. If recovery fails, the service stays stopped and the journal remains at `~/.local/share/srvr/backups/SERVICE/.restore.json`; start, restart and other mutations, including raw Compose `up`/`run`, are blocked. Keep the journal and set-aside data until recovery succeeds. An unfinished volume restore cannot be moved to another daemon/storage identity. Check journal state after a host reboot before starting containers through Docker directly; Docker restart policies bypass srvr's guard.
+
+Older directory-only archives and snapshots remain usable for directory-only registrations. They cannot supply newly registered volumes: take a complete new backup after changing coverage. Preserve the complete service snapshot directory when uploading/restoring it.
 
 A restore across several directories is recoverable, not one atomic filesystem operation. Snapshot replacement similarly retains its previous directory during publication and recovers an interrupted swap on retry. Off-server upload should run only after a successful snapshot command.
 

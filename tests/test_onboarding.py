@@ -7,6 +7,7 @@ from srvr.core.context import Context
 from srvr.core.errors import SrvrError
 from srvr.core.onboarding import save_registration, validate_model
 from srvr.core.registry import load_registry
+from srvr.core.shell import Result
 from srvr.core.ui import UI
 from tests.helpers import NoSudoShell, TempDirTest
 
@@ -37,6 +38,11 @@ class AddTest(TempDirTest):
         return self.parser.parse_args(
             ["add", "demo", "--workdir", str(self.work), "--kind", "image", "-y", *extra]
         )
+
+    def image_command(self, argv, **kwargs):
+        if argv[:3] == ["docker", "image", "inspect"]:
+            return Result(0, "sha256:" + "a" * 64, "")
+        return NoSudoShell.run(self.ctx.shell, argv, **kwargs)
 
     def test_registers_without_editing_project_or_printing_secrets(self) -> None:
         args = self.args("--env-file", "config.env", "--data", str(self.data))
@@ -123,7 +129,7 @@ class AddTest(TempDirTest):
         self.assertEqual(add.run(args, self.ctx), 0)
         service = load_registry(self.paths.services_dir).services["demo"]
         self.assertEqual(service.compose_files, (self.compose_file, override))
-        checkout.resolve.assert_called_once_with("dev")
+        self.assertEqual(checkout.resolve.call_args_list, [mock.call("dev"), mock.call("dev")])
         checkout.move_to.assert_not_called()
         self.assertEqual(self.compose_file.read_text(), self.original)
         self.assertIn("127.0.0.1", override.read_text())
@@ -143,6 +149,7 @@ class AddTest(TempDirTest):
         args = self.args("--start", "--backup", "--data", str(self.data))
         with (
             mock.patch.object(self.ctx.shell, "ensure_sudo"),
+            mock.patch.object(self.ctx.shell, "run", side_effect=self.image_command),
             mock.patch.object(add, "report_ready", return_value=False),
             mock.patch.object(add.backup, "backup_one") as take_backup,
         ):
@@ -158,6 +165,7 @@ class AddTest(TempDirTest):
         )
         with (
             mock.patch.object(self.ctx.shell, "ensure_sudo"),
+            mock.patch.object(self.ctx.shell, "run", side_effect=self.image_command),
             mock.patch.object(add, "report_ready", return_value=True),
             mock.patch.object(add.health, "run", return_value=0) as verify,
             mock.patch.object(add.backup, "backup_one") as take_backup,
@@ -167,6 +175,81 @@ class AddTest(TempDirTest):
         take_backup.assert_called_once()
         self.assertIn("preserve existing handlers", self.out.getvalue())
         self.assertIn("does not install or verify", self.out.getvalue())
+
+    def test_registers_explicit_options_and_resolved_volume_names_without_changing_files(
+        self,
+    ) -> None:
+        self.model["services"]["app"].update(
+            profiles=["app"],
+            network_mode="host",
+            ports=[{"host_ip": "0.0.0.0"}],
+            volumes=[{"type": "volume", "source": "db"}],
+        )
+        self.model["volumes"] = {"db": {"name": "demo_database"}}
+        args = self.args(
+            "--profile",
+            "app",
+            "--data-volume",
+            "demo_database",
+            "--allow-public-ports",
+            "--allow-host-network",
+        )
+        self.assertEqual(add.run(args, self.ctx), 0)
+        service = load_registry(self.paths.services_dir).services["demo"]
+        self.assertEqual(service.profiles, ("app",))
+        self.assertEqual(service.data_volumes, ("demo_database",))
+        self.assertTrue(service.allow_host_network)
+        self.assertTrue(service.allow_public_ports)
+        self.assertTrue(service.has_data)
+        self.assertEqual(self.compose_file.read_text(), self.original)
+        self.assertIn("non-loopback", self.err.getvalue())
+        self.assertIn("bypasses", self.err.getvalue())
+        self.compose.pin_images.assert_not_called()
+
+    def test_volume_registration_requires_resolved_name_and_selected_component(self) -> None:
+        self.model["services"]["app"]["volumes"] = [{"type": "volume", "source": "db"}]
+        self.model["volumes"] = {"db": {"name": "demo_db"}}
+        with self.assertRaisesRegex(SrvrError, "resolved named volumes"):
+            add.run(self.args("--data-volume", "db"), self.ctx)
+        self.assertFalse(self.paths.services_dir.exists())
+
+    def test_configuration_change_during_confirmation_is_refused(self) -> None:
+        args = self.args("--env-file", "config.env")
+        with (
+            mock.patch.object(
+                self.ctx.ui,
+                "confirm",
+                side_effect=lambda *a, **k: self.env.write_text("TOKEN=changed-secret\n"),
+            ),
+            self.assertRaisesRegex(SrvrError, "changed after confirmation"),
+        ):
+            add.run(args, self.ctx)
+        self.assertFalse(self.paths.services_dir.exists())
+        self.assertNotIn("changed-secret", self.out.getvalue() + self.err.getvalue())
+
+    def test_named_volume_cannot_be_registered_under_another_project(self) -> None:
+        self.model["services"]["app"]["volumes"] = [{"type": "volume", "source": "db"}]
+        self.model["volumes"] = {"db": {"name": "external_db"}}
+        add.run(self.args("--data-volume", "external_db"), self.ctx)
+        other = self.tmp / "other"
+        other.mkdir()
+        (other / "compose.yaml").write_text(self.original)
+        args = self.parser.parse_args(
+            [
+                "add",
+                "other",
+                "--kind",
+                "image",
+                "--workdir",
+                str(other),
+                "--data-volume",
+                "external_db",
+                "-y",
+            ]
+        )
+        with self.assertRaisesRegex(SrvrError, "named volumes is already registered as demo"):
+            add.run(args, self.ctx)
+        self.assertFalse((self.paths.services_dir / "other.toml").exists())
 
 
 class OnboardingValidationTest(TempDirTest):

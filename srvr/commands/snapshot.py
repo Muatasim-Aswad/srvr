@@ -6,7 +6,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 from srvr.commands._shared import add_services, chosen_services, report_ready, stopped
-from srvr.core import history, snapshots
+from srvr.core import configuration, history, snapshots, volumes
 from srvr.core.context import Context
 from srvr.core.errors import SrvrError
 from srvr.core.lock import service_lock
@@ -28,10 +28,15 @@ def configure(parser: ArgumentParser) -> None:
 
 def snapshot_one(ctx: Context, service: Service, dest: Path) -> bool:
     """True when the copy was refreshed and the service is back up."""
+    expected = configuration.revision(service)
     with service_lock(ctx.paths, service.name):
+        volumes.validate_registration(service, ctx.paths.services_dir)
+        configuration.validate(service, expected)
+        expected_volumes = volumes.inspect(ctx.shell, service, stopped=False)
         try:
             with stopped(ctx, service) as was_running:
-                ctx.ui.step(f"{service.name}: copying {', '.join(str(d) for d in service.data)}")
+                volumes.revalidate(ctx.shell, service, expected_volumes)
+                ctx.ui.step(f"{service.name}: copying {volumes.coverage(service)}")
                 copied = snapshots.copy(ctx.shell, service, dest)
         except SrvrError as exc:
             history.record(ctx.paths, service.name, "snapshot", "failed", note=str(exc))
@@ -48,8 +53,8 @@ def run(args: Namespace, ctx: Context) -> int:
     ctx.shell.ensure_sudo()
     ok = True
     for service in services:
-        if not service.data:
-            ctx.ui.line(f"{service.name}: no data directories registered, skipped")
+        if not service.has_data:
+            ctx.ui.line(f"{service.name}: no data registered, skipped")
             continue
         ok = snapshot_one(ctx, service, dest) and ok
     return 0 if ok else 1

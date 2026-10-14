@@ -11,7 +11,13 @@ from .paths import Paths, ensure_private_dir, keep_home_owner
 
 
 @contextmanager
-def service_lock(paths: Paths, service: str, *, allow_restore: bool = False) -> Iterator[None]:
+def service_lock(
+    paths: Paths,
+    service: str,
+    *,
+    allow_restore: bool = False,
+    allow_deployment_recovery: bool = False,
+) -> Iterator[None]:
     file = ensure_private_dir(paths.service_state(service)) / "lock"
     with file.open("w") as handle:
         keep_home_owner(file)
@@ -20,10 +26,15 @@ def service_lock(paths: Paths, service: str, *, allow_restore: bool = False) -> 
         except BlockingIOError as exc:
             raise SrvrError(f"{service}: another srvr command is changing it right now") from exc
         try:
-            if not allow_restore and (paths.service_backups(service) / ".restore.json").exists():
+            journal = paths.service_backups(service) / ".restore.json"
+            if not allow_restore and (journal.exists() or journal.is_symlink()):
                 raise SrvrError(
                     f"{service}: unfinished restore; recover with srvr restore {service}"
                 )
+            if not allow_deployment_recovery:
+                from .deploys import assert_recovered
+
+                assert_recovered(paths, service)
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)

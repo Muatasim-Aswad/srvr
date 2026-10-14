@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,9 +40,47 @@ class Checkout:
         refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
         return self._ok("fetch", "--quiet", "--tags", "origin", refspec)
 
+    def fetch_ref(self, ref: str) -> str | None:
+        """Refresh an explicit branch/tag/commit without requiring the registered branch."""
+        branch = ref if ref.startswith("refs/heads/") else f"refs/heads/{ref}"
+        tag = ref if ref.startswith("refs/tags/") else f"refs/tags/{ref}"
+        result = self.shell.run(
+            ["git", "-C", str(self.path), "ls-remote", "--refs", "origin", branch, tag],
+            check=False,
+        )
+        if not result.ok:
+            return None
+        remote = {line.split("\t", 1)[1] for line in result.stdout.splitlines() if "\t" in line}
+        if branch in remote:
+            name = branch.removeprefix("refs/heads/")
+            return f"refs/remotes/origin/{name}" if self.fetch(name) else None
+        if tag in remote:
+            return tag if self._ok("fetch", "--quiet", "--tags", "origin", f"{tag}:{tag}") else None
+        local_tag = self._git("rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}", check=False)
+        if not local_tag and not re.fullmatch(r"[0-9a-fA-F]{4,40}", ref):
+            return None
+        if not self._ok("fetch", "--quiet", "--tags", "origin", "refs/tags/*:refs/tags/*"):
+            return None
+        if local_tag:
+            return tag
+        commit = self._git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+        if commit:
+            return commit
+        if len(ref) == 40 and self._ok("fetch", "--quiet", "--no-tags", "origin", ref):
+            return (
+                self._git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+                or None
+            )
+        return None
+
     def resolve(self, ref: str) -> str:
         """Commit for a branch (preferring origin/<ref>), tag or commit ID."""
-        for candidate in (f"refs/remotes/origin/{ref}", ref):
+        candidates = (
+            (ref,)
+            if ref.startswith("refs/") or re.fullmatch(r"[0-9a-fA-F]{40}", ref)
+            else (f"refs/remotes/origin/{ref}", ref)
+        )
+        for candidate in candidates:
             sha = self._git(
                 "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}", check=False
             )

@@ -1,7 +1,10 @@
 """Public CLI acceptance tests with real builds, SQLite, migrations and health checks."""
 
+import json
 import os
+import sqlite3
 import unittest
+from contextlib import closing
 
 from tests.docker_acceptance_support import DockerAcceptanceTest
 
@@ -15,6 +18,8 @@ class SourceDeploymentTest(DockerAcceptanceTest):
         first = self.prepare_source()
         self.assertEqual(self.response(), {"schema": 1, "notes": ["kept"], "version": "one"})
         self.assertEqual(self.response("/version.json")["revision"], first)
+        runtime = self.tmp / "state" / "srvr" / "example" / "images.compose.json"
+        initial_migration = json.loads(runtime.read_text())["services"]["migrate"]["image"]
         second = self.commit(version="two", schema=2)
         self.srvr("update", "example", "-y")
         self.assertEqual(self.response(), {"schema": 2, "notes": ["converted"], "version": "two"})
@@ -22,6 +27,9 @@ class SourceDeploymentTest(DockerAcceptanceTest):
         self.srvr("rollback", "example", "--data", "-y")
         self.assertEqual(self.response(), {"schema": 1, "notes": ["kept"], "version": "one"})
         self.assertEqual(self.response("/version.json")["revision"], first)
+        self.assertEqual(
+            json.loads(runtime.read_text())["services"]["migrate"]["image"], initial_migration
+        )
         self.srvr("update", "example", "-y")
         self.assertEqual(self.response(), {"schema": 2, "notes": ["converted"], "version": "two"})
         self.assertEqual(self.response("/version.json")["revision"], second)
@@ -34,7 +42,9 @@ class SourceDeploymentTest(DockerAcceptanceTest):
         self.commit(version="broken", schema=2, fail_migration=True)
         result = self.srvr("update", "example", "-y", check=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("MIGRATION_COMMITTED", result.stdout)
+        kept = next(self.data.parent.glob("data.pre-restore-*"))
+        with closing(sqlite3.connect(kept / "app.sqlite")) as connection:
+            self.assertEqual(connection.execute("SELECT version FROM metadata").fetchone()[0], 2)
         self.assertEqual(self.response(), {"schema": 1, "notes": ["kept"], "version": "one"})
         self.assertEqual(self.response("/version.json")["revision"], first)
         self.assertEqual(self.git(self.work, "rev-parse", "HEAD"), first)

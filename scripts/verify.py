@@ -29,6 +29,8 @@ def docker_checks() -> None:
         "unittest",
         "tests.test_docker_workflow",
         "tests.test_deployment_acceptance",
+        "tests.test_compose_acceptance",
+        "tests.test_hybrid_acceptance",
         env={**os.environ, "SRVR_DOCKER_TESTS": "1", "SRVR_ACCEPTANCE_TESTS": "1"},
     )
 

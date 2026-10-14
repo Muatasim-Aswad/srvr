@@ -9,9 +9,10 @@ from functools import partial
 
 from srvr.commands._shared import add_services
 from srvr.core.context import Context
+from srvr.core.deploys import container_probe
 from srvr.core.health import Probe, build_probe, probe
 
-HELP = "Check each service's loopback and private HTTPS endpoints, and the build it serves"
+HELP = "Check selected containers, loopback/private HTTPS endpoints, and the served build"
 
 
 def configure(parser: ArgumentParser) -> None:
@@ -20,7 +21,13 @@ def configure(parser: ArgumentParser) -> None:
 
 def run(args: Namespace, ctx: Context) -> int:
     services = ctx.services(args.services)
+    if services:
+        ctx.shell.ensure_sudo()
     checks: list[tuple[str, str, str, Callable[[], Probe]]] = [
+        (service.name, "containers", service.project, partial(container_probe, ctx, service))
+        for service in services
+    ]
+    checks += [
         (service.name, label, url, partial(probe, url))
         for service in services
         for label, url in (("local", service.health), ("https", service.url))

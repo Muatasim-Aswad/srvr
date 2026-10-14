@@ -24,7 +24,11 @@ def configure(parser: ArgumentParser) -> None:
 
 def refuse_destructive(args: list[str]) -> None:
     """Never let `down` delete volumes; that can destroy data or rollback copies."""
-    if args and args[0] == "down" and any(a in ("-v", "--volumes") for a in args[1:]):
+    if (
+        args
+        and args[0] == "down"
+        and any(a.startswith("-v") or a.split("=", 1)[0] == "--volumes" for a in args[1:])
+    ):
         raise SrvrError("refusing `down --volumes`: it can delete persistent data")
 
 

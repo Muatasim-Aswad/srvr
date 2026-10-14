@@ -6,7 +6,7 @@
 
 - `srvr/cli.py` discovers every public module in `srvr/commands/`; each module is one command (`HELP`, `configure(parser)`, `run(args, ctx) -> int`). Add a command by adding a file.
 - `srvr/commands/_shared.py` holds argument and display helpers used by several commands.
-- `srvr/core/` holds the logic commands compose: `registry`, `settings`, `paths`, `shell` (all subprocesses), `docker`, `compose`, `git`, `health`, `backups`, `snapshots`, `deploys` (pre-update version records and rollback), `history`, `lock`, `composefile`, `envfile`, `ui`.
+- `srvr/core/` holds shared domain/system operations: registry/configuration, Shell (all subprocesses), Docker/Compose/Git, health, backup/snapshot/volume restoration, deployment planning/preparation/transactions, configuration snapshots, startup/migrations, history and locks.
 
 ## Workflow
 
@@ -28,11 +28,12 @@ Install [mise](https://mise.jdx.dev/getting-started.html), then use the same gat
 mise trust
 mise install
 mise run install-hooks
-mise run verify       # lint, format, types, docs, workflow syntax, unit/regression tests
-mise run verify-all   # also real Docker deployments and Debian package lifecycle
+mise run verify
 ```
 
-`mise.toml` pins the tools; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
+`mise run verify` checks lint, formatting, types, docs, workflow syntax, and unit/regression tests. Run `mise run verify-all` when changing deployment, recovery, or packaging; it also exercises real Docker deployments and the Debian package lifecycle.
+
+`mise.toml` pins tools and defines task arguments; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
 
 CI runs the default gate on Python 3.11, 3.13 and 3.14, plus separate Docker, Debian, and push/PR-range secret-scan jobs. The aggregate **Required checks** job fails if any job fails; use that check in branch protection. The default gate scans an allowlisted source snapshot with redacted gitleaks output. Package artifacts are retained for review. Actions use commit pins and read-only permissions except the release publishing job; Dependabot groups weekly updates by ecosystem with a three-day version cooldown. Security updates remain immediate. CI never deploys a server.
 
@@ -40,15 +41,15 @@ For a focused check:
 
 ```sh
 python3 -m unittest
-mise exec -- scripts/verify --docker-only
-mise exec -- scripts/verify --package-only
+mise run verify -- --docker-only
+mise run verify -- --package-only
 ```
 
 Read the repository's `AGENTS.md` for contribution and safety rules. Regression tests cover failed directory switches, extraction errors, interruption/retry recovery, snapshot replacement, stale confirmations, lock contention and protected rollback backups.
 
-Acceptance tests require a working local Docker daemon, Git, GNU tar, zstd, and the cached images `python:3.14.6-slim-trixie` and `registry:3`. They create isolated projects, repositories, loopback ports and data directories, then remove their containers, networks and image tags. Builds and image pushes/pulls are real; only sudo is adapted to execute as the test user, with containers using that user's UID/GID. They do not test sudo authentication or privileged ownership restoration.
+Acceptance tests require a working local Docker daemon, Git, GNU tar, zstd, GNU coreutils/findutils, util-linux and the cached images `alpine:latest`, `python:3.14.6-slim-trixie` and `registry:3`. They create isolated projects, repositories, loopback ports, directories and volumes, then remove only owned fixture resources and image tags. Builds and image pushes/pulls are real; sudo authentication is adapted. Ordinary app fixtures use the test user's UID/GID; disposable root helpers test volume ownership/mode preservation. The suite does not test live-host sudo authentication.
 
-The acceptance scenarios cover a source update → rollback with data → update again, committed SQLite migration failure, an actual unhealthy app, and a real registry pull that selects only the app plus a missing-tag failure that preserves the running installation. Assertions check served app state and commit records, clean Git checkouts, unchanged database images and registry manifest requests. Test failures have also been verified using disposable code copies with stale pins, omitted data restoration, and broad image pulls.
+The 21 Docker scenarios cover source/prebuilt/mixed stacks, same-Compose source/image modes, env/override versions, coordinated images and preparation failures, configuration rollback, committed explicit/automatic migrations, timeouts, selected-component readiness, named-volume archive/snapshot/restore and interruption guards, fixed profiles and network opt-ins. Assertions check served content, data, exact image IDs, metadata, clean checkouts and owned registry requests. Default regressions also use real temporary Git remotes for deleted-default explicit refs and real filesystem paths for candidate symlink refusal. Older Engine/Compose versions and general power-loss recovery remain outside this gate.
 
 To select compatibility tools without changing the system installation, set `SRVR_TEST_PYTHON` to a Python executable and `SRVR_TEST_COMPOSE` to a standalone Compose binary. The tests invoke srvr through those tools. Compatibility checks use Python 3.13 and Compose 2.26.1 on the local Docker daemon; this does not reproduce the server's Docker Engine version. `SRVR_TEST_BASE_IMAGE` and `SRVR_TEST_REGISTRY_IMAGE` can select pre-cached fixture images.
 
@@ -57,8 +58,7 @@ To select compatibility tools without changing the system installation, set `SRV
 On a development machine with Docker access:
 
 ```sh
-scripts/build-deb
-scripts/test-deb dist/srvr_0.1.0-1_all.deb
+mise run verify -- --package-only
 ```
 
 The builder copies only `packaging/source-files.txt` entries into a temporary source snapshot, installs build tools in a digest-pinned Debian 13 container using a fixed Debian package snapshot, runs unit tests, generates offline HTML/Markdown and `srvr.1`, builds with debhelper, and checks lintian and exact package contents. Artifacts and `SHA256SUMS` go in `dist/`. Builds run as your UID/GID; they do not install anything on the host. Refresh the base digest and Debian snapshot together when updating build tools.
@@ -74,10 +74,10 @@ On Debian, the native build needs `build-essential`, `dpkg-dev`, `debhelper`, `d
 Rehearse a committed version without publishing:
 
 ```sh
-mise run release-check -- --ref HEAD --output dist/candidate
+mise run release-check
 ```
 
-The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
+The release driver (`scripts/release.py`) defaults to `HEAD` and `dist/release`; use `--ref` or `--output` after `--` to select another candidate or output directory. The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
 
 When release publication is authorized, tag the reviewed commit `vX.Y.Z` and push that tag. The release workflow requires an exact version match, repeats the rehearsal from the tag, downloads and tests the CI artifacts, then uploads the complete bundle to a draft and publishes it. Only that final job receives write permission. Enable immutable releases before tagging. Recover failed publication by rerunning the workflow for the existing tag; do not move the tag or rebuild from `main`. An apt repository and a srvr container image are not provided.
 

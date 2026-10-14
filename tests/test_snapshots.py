@@ -63,6 +63,17 @@ class SnapshotsTest(TempDirTest):
         with self.assertRaisesRegex(SrvrError, "missing"):
             snapshots.copy(self.shell, gone, self.dest)
 
+    def test_old_directory_snapshot_restores_through_the_recovery_journal(self) -> None:
+        copied = snapshots.copy(self.shell, self.svc, self.dest)
+        self.assertFalse((copied / ".srvr-data.json").exists())
+        selected = snapshots.read(self.shell, self.svc, copied)
+        (self.data / "db.sqlite").write_text("current")
+        journal = self.paths.service_backups(self.svc.name) / ".restore.json"
+        kept = snapshots.restore(self.shell, self.svc, selected, journal)
+        self.assertEqual((self.data / "db.sqlite").read_text(), "v1")
+        self.assertEqual((kept[0] / "db.sqlite").read_text(), "current")
+        self.assertFalse(journal.exists())
+
     def test_failed_replacement_keeps_the_previous_snapshot(self) -> None:
         snapshots.copy(self.shell, self.svc, self.dest)
         (self.data / "db.sqlite").write_text("v2")
