@@ -33,7 +33,7 @@ mise run verify
 
 `mise run verify` checks lint, formatting, types, docs, workflow syntax, and unit/regression tests. Run `mise run verify-all` when changing deployment, recovery, or packaging; it also exercises real Docker deployments and the Debian package lifecycle.
 
-[`mise.toml`](../mise.toml) pins tools and defines task arguments; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
+`mise.toml` pins tools and defines task arguments; `uv.lock` locks development dependencies. Runtime dependencies stay in the standard library. Hooks validate the staged files before commit and outgoing commits before push, using temporary snapshots so unstaged edits cannot hide a failure. Hook installation refuses to replace a different existing hooks directory.
 
 CI runs the default gate on Python 3.11, 3.13 and 3.14, plus separate Docker, Debian, and push/PR-range secret-scan jobs. The aggregate **Required checks** job fails if any job fails; use that check in branch protection. The default gate scans an allowlisted source snapshot with redacted gitleaks output. Package artifacts are retained for review. Actions use commit pins and read-only permissions except the release publishing job; Dependabot groups weekly updates by ecosystem with a three-day version cooldown. Security updates remain immediate. CI never deploys a server.
 
@@ -77,7 +77,7 @@ Rehearse a committed version without publishing:
 mise run release-check
 ```
 
-The [release driver](../scripts/release.py) defaults to `HEAD` and `dist/release`; use `--ref` or `--output` after `--` to select another candidate or output directory. The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
+The release driver (`scripts/release.py`) defaults to `HEAD` and `dist/release`; use `--ref` or `--output` after `--` to select another candidate or output directory. The rehearsal exports the ref with `git archive`, scans it, runs the full gate, builds the package, checks exact source/package contents, smoke-tests installation, and writes source, release notes, provenance, and checksums. The commit timestamp sets `SOURCE_DATE_EPOCH` and the recorded build time. Use a new output directory for each candidate. Release notes describe behavior, validation, and scope; do not publish private history or local build output.
 
 When release publication is authorized, tag the reviewed commit `vX.Y.Z` and push that tag. The release workflow requires an exact version match, repeats the rehearsal from the tag, downloads and tests the CI artifacts, then uploads the complete bundle to a draft and publishes it. Only that final job receives write permission. Enable immutable releases before tagging. Recover failed publication by rerunning the workflow for the existing tag; do not move the tag or rebuild from `main`. An apt repository and a srvr container image are not provided.
 
