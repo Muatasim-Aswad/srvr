@@ -11,7 +11,7 @@ from srvr.commands._shared import (
     stopped,
     version_of,
 )
-from srvr.core import backups, history
+from srvr.core import backups, configuration, history, volumes
 from srvr.core.context import Context
 from srvr.core.lock import service_lock
 from srvr.core.registry import Service
@@ -25,10 +25,15 @@ def configure(parser: ArgumentParser) -> None:
 
 
 def backup_one(ctx: Context, service: Service) -> None:
+    expected = configuration.revision(service)
     with service_lock(ctx.paths, service.name):
+        volumes.validate_registration(service, ctx.paths.services_dir)
+        configuration.validate(service, expected)
+        expected_volumes = volumes.inspect(ctx.shell, service, stopped=False)
         version = version_of(ctx, service)
         with stopped(ctx, service) as was_running:
-            ctx.ui.step(f"{service.name}: archiving {', '.join(str(d) for d in service.data)}")
+            volumes.revalidate(ctx.shell, service, expected_volumes)
+            ctx.ui.step(f"{service.name}: archiving {volumes.coverage(service)}")
             taken = backups.create(ctx.shell, ctx.paths, service, reason="manual", version=version)
         removed = backups.prune(ctx.paths, service.name, keep=ctx.settings.keep_backups)
         history.record(ctx.paths, service.name, "backup", "ok", before=version, backup=taken.name)
@@ -43,8 +48,8 @@ def run(args: Namespace, ctx: Context) -> int:
     services = chosen_services(ctx, args)
     ctx.shell.ensure_sudo()
     for service in services:
-        if not service.data:
-            ctx.ui.line(f"{service.name}: no data directories registered, skipped")
+        if not service.has_data:
+            ctx.ui.line(f"{service.name}: no data registered, skipped")
             continue
         backup_one(ctx, service)
     return 0

@@ -58,4 +58,4 @@ def wait_until(check: Callable[[], Probe], *, timeout: float, interval: float = 
         result = check()
         if result.ok or time.monotonic() >= deadline:
             return result
-        time.sleep(interval)
+        time.sleep(min(interval, max(0, deadline - time.monotonic())))

@@ -26,10 +26,11 @@ class ImagePlanTest(TempDirTest):
         self.file.write_text(self.original)
         self.service_ = self.service()
         self.ctx = mock.Mock()
+        self.ctx.paths = self.paths
         self.compose = self.ctx.compose.return_value
         self.compose.config.side_effect = self.model
 
-    def model(self):
+    def model(self, **_kwargs):
         return {
             "services": {
                 name: {"image": find_image(self.file.read_text(), name)[1]}
@@ -40,13 +41,13 @@ class ImagePlanTest(TempDirTest):
     def args(self, **values):
         return Namespace(image="example/app:2", component="app", check=False, force=False, **values)
 
-    def test_updates_and_pulls_only_selected_component(self) -> None:
+    def test_activation_edits_only_selected_literal(self) -> None:
         plan = plan_image(self.ctx, self.service_, self.args(), named=True)
         plan.validate()
-        plan.prepare()
+        plan.activate()
         self.assertEqual(find_image(self.file.read_text(), "app")[1], "example/app:2")
         self.assertEqual(find_image(self.file.read_text(), "db")[1], "postgres:17")
-        self.compose.pull.assert_called_once_with("app")
+        self.compose.pull.assert_not_called()
         plan.revert()
         self.assertEqual(self.file.read_text(), self.original)
 
@@ -67,7 +68,7 @@ class ImagePlanTest(TempDirTest):
         args.component, args.image = "db", "postgres:18"
         self.assertEqual(plan_image(self.ctx, service, args, named=True).component, "db")
 
-    def test_rejects_built_or_missing_component(self) -> None:
+    def test_accepts_hybrid_and_rejects_missing_component(self) -> None:
         args = self.args()
         args.component = "missing"
         with self.assertRaisesRegex(SrvrError, "not an image component"):
@@ -77,15 +78,14 @@ class ImagePlanTest(TempDirTest):
         self.compose.config.side_effect = None
         self.compose.config.return_value = model
         args.component = "app"
-        with self.assertRaisesRegex(SrvrError, "not an image component"):
-            plan_image(self.ctx, self.service_, args, named=True)
+        self.assertIsNotNone(plan_image(self.ctx, self.service_, args, named=True))
 
-    def test_overridden_image_and_stale_plans_are_rejected(self) -> None:
+    def test_overridden_image_uses_owned_override_and_stale_plans_are_rejected(self) -> None:
         model = self.model()
         model["services"]["app"]["image"] = "example/app:override"
-        self.compose.config.side_effect = lambda: model
-        with self.assertRaisesRegex(SrvrError, "literal"):
-            plan_image(self.ctx, self.service_, self.args(), named=True)
+        self.compose.config.side_effect = lambda **_kwargs: model
+        self.assertIsNotNone(plan_image(self.ctx, self.service_, self.args(), named=True))
+        self.assertEqual(self.file.read_text(), self.original)
         self.compose.config.side_effect = self.model
         plan = plan_image(self.ctx, self.service_, self.args(), named=True)
         self.file.write_text(self.original + "# concurrent edit\n")
@@ -95,7 +95,8 @@ class ImagePlanTest(TempDirTest):
 
     def test_shadowed_edit_is_rejected_before_pulling(self) -> None:
         model = self.model()
-        self.compose.config.side_effect = lambda: model
+        self.compose.config.side_effect = lambda **_kwargs: model
+        self.ctx.shell.run.return_value.stdout = json.dumps(model)
         plan = plan_image(self.ctx, self.service_, self.args(), named=True)
         with self.assertRaisesRegex(SrvrError, "did not change only"):
             plan.prepare()
@@ -119,8 +120,13 @@ class DeploymentRecoveryTest(TempDirTest):
         self.service_.workdir.mkdir()
         self.service_.compose_files[0].write_text("services:\n  app:\n    image: app:1\n")
         self.compose = mock.Mock()
+        self.compose.image_refs.return_value = {"app": "app:2", "db": "db:1"}
+        self.compose.config.return_value = {
+            "services": {"app": {"image": "app:2"}, "db": {"image": "db:1"}}
+        }
         self.ctx.compose = mock.Mock(return_value=self.compose)
         self.ctx.docker = mock.Mock()
+        self.ctx.docker.project_containers.return_value = []
         self.snapshot = deploys.Snapshot(
             images={"app": "sha256:old-app", "db": "sha256:old-db"},
             image_refs={"app": "app:1", "db": "db:1"},
@@ -160,7 +166,7 @@ class DeploymentRecoveryTest(TempDirTest):
         with (
             mock.patch.object(self.ctx.shell, "ensure_sudo"),
             mock.patch.object(deploys, "capture", return_value=self.snapshot),
-            self.assertRaisesRegex(SrvrError, "pull failed"),
+            self.assertRaisesRegex(SrvrError, "preparation failed"),
         ):
             deploy(self.ctx, self.service_, self.plan, backup=False)
         self.plan.revert.assert_called_once()
@@ -177,7 +183,15 @@ class DeploymentRecoveryTest(TempDirTest):
 
     def test_git_rollback_and_new_deploy_keep_source_files_unchanged(self) -> None:
         service = self.service(kind="git", branch="main")
-        self.snapshot.commit = "a" * 40
+        for arguments in (
+            ["init", "--quiet"],
+            ["config", "user.email", "fixture@example.invalid"],
+            ["config", "user.name", "Fixture"],
+            ["add", "."],
+            ["commit", "--quiet", "-m", "fixture"],
+        ):
+            self.ctx.shell.run(["git", "-C", str(service.workdir), *arguments])
+        self.snapshot.commit = self.ctx.checkout(service).head()
         original = service.compose_files[0].read_text()
         with mock.patch.object(self.ctx, "checkout") as checkout:
             deploys.apply(self.ctx, service, self.snapshot)

@@ -6,7 +6,7 @@ import shlex
 from argparse import ArgumentParser, Namespace
 
 from srvr.commands._shared import last_event, version_of
-from srvr.core import backups, deploys
+from srvr.core import backups, deploymentprep, deploys
 from srvr.core.context import Context
 from srvr.core.errors import SrvrError
 from srvr.core.registry import Service
@@ -41,7 +41,15 @@ def details(ctx: Context, s: Service) -> list[tuple[str, str]]:
         ("env file", str(s.env_file) if s.env_file else "-"),
         ("migrate", s.migrate or "-"),
         ("update component", s.update_component or "-"),
-        ("data", ", ".join(str(d) for d in s.data) or "- (nothing to back up)"),
+        ("profiles", ", ".join(s.profiles) or "- (unprofiled components only)"),
+        ("public ports", "allowed by registration" if s.allow_public_ports else "loopback only"),
+        ("host network", "allowed by registration" if s.allow_host_network else "refused"),
+        ("data directories", ", ".join(str(d) for d in s.data) or "-"),
+        ("data volumes", ", ".join(s.data_volumes) or "-"),
+        (
+            "backup coverage",
+            "registered data only; other mounts unmanaged" if s.has_data else "none",
+        ),
         ("readme", str(readme) if readme.exists() else "-"),
         ("registry", str(s.source)),
     ]
@@ -73,7 +81,9 @@ def markdown(ctx: Context, services: list[Service]) -> str:
         if s.is_git:
             source = f"Git `{s.branch}` in `{s.workdir}`"
         else:
-            refs = sorted(set(ctx.compose(s).image_refs().values()))
+            refs = sorted(
+                set(deploymentprep.display_refs(ctx, s, ctx.compose(s).image_refs()).values())
+            )
             source = ", ".join(f"`{ref}`" for ref in refs) or "-"
         cells = [
             s.name,
@@ -81,11 +91,17 @@ def markdown(ctx: Context, services: list[Service]) -> str:
             f"`{s.url}`" if s.url else "-",
             f"`{s.health}`" if s.health else "-",
             source,
-            ", ".join(f"`{d}`" for d in s.data) or "none",
+            ", ".join([*(f"`{d}`" for d in s.data), *(f"volume `{v}`" for v in s.data_volumes)])
+            or "none",
         ]
         lines.append("| " + " | ".join(_cell(c) for c in cells) + " |")
     lines += ["", "Emergency Compose commands, for when srvr itself cannot run:", "", "```sh"]
     for s in services:
+        lines.append(
+            f"# {s.name}: profiles {', '.join(s.profiles) or '(none)'}; "
+            f"public ports {'allowed' if s.allow_public_ports else 'refused'}; "
+            f"host networking {'allowed' if s.allow_host_network else 'refused'}"
+        )
         command = shlex.join(ctx.compose(s).argv())
         lines.append(f"cd {shlex.quote(str(s.workdir))} && sudo {command} <args>  # {s.name}")
     lines.append("```")

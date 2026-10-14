@@ -10,17 +10,21 @@ from typing import Any
 
 from srvr.commands import backup, health
 from srvr.commands._shared import add_yes, report_ready
+from srvr.core import backups, configuration, deploymentprep, volumes
 from srvr.core.context import Context
 from srvr.core.errors import SrvrError
 from srvr.core.lock import service_lock
 from srvr.core.onboarding import (
+    registration_state,
     save_registration,
+    selected_services,
     validate_files,
     validate_model,
     validate_unique,
     writable_binds,
 )
 from srvr.core.registry import NAME_RE, Service, parse_service
+from srvr.core.startup import start_prepared
 
 HELP = "Register an existing Compose project, validate it, and optionally start and back it up"
 
@@ -38,6 +42,24 @@ def configure(parser: ArgumentParser) -> None:
         "--config-file", action="append", help="existing config file; repeat as needed"
     )
     parser.add_argument("--data", action="append", help="existing data directory; repeat as needed")
+    parser.add_argument(
+        "--data-volume",
+        action="append",
+        help="resolved Docker volume name to back up; repeat as needed",
+    )
+    parser.add_argument(
+        "--profile", action="append", help="fixed Compose profile; repeat as needed"
+    )
+    parser.add_argument(
+        "--allow-public-ports",
+        action="store_true",
+        help="allow explicitly configured non-loopback publication",
+    )
+    parser.add_argument(
+        "--allow-host-network",
+        action="store_true",
+        help="allow explicitly configured host networking",
+    )
     parser.add_argument("--migrate", help="one-off migration component")
     parser.add_argument("--health", help="loopback health URL")
     parser.add_argument("--url", help="private HTTPS URL, including any shared-service path")
@@ -105,6 +127,18 @@ def collect(args: Namespace, ctx: Context) -> tuple[Service, dict[str, Any], lis
     workdir = Path(workdir_value).expanduser().resolve()
     kind = value("kind", "Kind: git or image", "git" if (workdir / ".git").exists() else "image")
     raw: dict[str, Any] = {"kind": kind, "workdir": str(workdir)}
+    raw.update(
+        {
+            key: item
+            for key, item in {
+                "profiles": args.profile,
+                "data_volumes": args.data_volume,
+                "allow_public_ports": args.allow_public_ports,
+                "allow_host_network": args.allow_host_network,
+            }.items()
+            if item
+        }
+    )
 
     def absolute(item: str) -> str:
         path = Path(item).expanduser()
@@ -141,36 +175,44 @@ def collect(args: Namespace, ctx: Context) -> tuple[Service, dict[str, Any], lis
         raw["branch"] = value("branch", "Deployment branch", branch or "main")
     elif args.branch is not None:
         raw["branch"] = args.branch
-    service = parse_service(args.service, raw, ctx.paths.services_dir / f"{args.service}.toml")
-    validate_files(service)
-    model = ctx.compose(service).config(all_profiles=True)
-    raw["data"] = [
-        absolute(p)
-        for p in paths(
-            "data",
-            "Data directories to back up",
-            [str(p) for p in writable_binds(model) if p.is_dir()] if interactive else [],
-        )
-    ]
-    for key, label in (
-        ("migrate", "Migration component"),
-        ("health", "Loopback health URL"),
-        ("url", "Private HTTPS URL"),
-        ("version_url", "Loopback version.json URL"),
-        ("update_component", "Default image component to update"),
-    ):
-        if (
-            (key == "version_url" and kind != "git")
-            or (key == "update_component" and kind != "image")
-        ) and getattr(args, key) is None:
-            continue
+    for key, label in _optional_fields(kind, args):
         answer = value(key, label)
         if answer:
             raw[key] = answer
     service = parse_service(args.service, raw, ctx.paths.services_dir / f"{args.service}.toml")
     validate_files(service)
+    model = ctx.compose(service).config(all_profiles=True)
+    active_model = {**model, "services": selected_services(service, model)}
+    raw["data"] = [
+        absolute(p)
+        for p in paths(
+            "data",
+            "Data directories to back up",
+            [str(p) for p in writable_binds(active_model) if p.is_dir()] if interactive else [],
+        )
+    ]
+    service = parse_service(args.service, raw, ctx.paths.services_dir / f"{args.service}.toml")
+    validate_files(service)
     validate_source(ctx, service)
     return service, raw, validate_model(service, model)
+
+
+def _optional_fields(kind: str, args: Namespace) -> list[tuple[str, str]]:
+    return [
+        (key, label)
+        for key, label in (
+            ("migrate", "Migration component"),
+            ("health", "Loopback health URL"),
+            ("url", "Private HTTPS URL"),
+            ("version_url", "Loopback version.json URL"),
+            ("update_component", "Default image component to update"),
+        )
+        if not (
+            (key == "version_url" and kind != "git")
+            or (key == "update_component" and kind != "image")
+        )
+        or getattr(args, key) is not None
+    ]
 
 
 def next_steps(ctx: Context, service: Service) -> None:
@@ -191,14 +233,14 @@ def next_steps(ctx: Context, service: Service) -> None:
             "and preserve existing handlers."
         )
         ctx.ui.line("Verify: tailscale serve status; then srvr health " + service.name)
-    if service.data:
+    if service.has_data:
         ctx.ui.line(f"Local backup: srvr backup {service.name}")
         ctx.ui.line(
             "Registered data joins `srvr snapshot --all` when an off-server backup job "
             "is configured. Registration does not install or verify that job."
         )
     else:
-        ctx.ui.line("No data directories registered; srvr will not back up this service's data.")
+        ctx.ui.line("No data registered; srvr will not back up this service's data.")
     ctx.ui.line("Offline index: srvr info --all --markdown")
 
 
@@ -209,8 +251,11 @@ def run(args: Namespace, ctx: Context) -> int:
     if target.exists() or target.is_symlink():
         raise SrvrError(f"{args.service}: already registered; use srvr info")
     service, raw, warnings = collect(args, ctx)
-    if args.backup and not service.data:
-        raise SrvrError("--backup needs at least one --data directory")
+    if args.backup and not service.has_data:
+        raise SrvrError("--backup needs --data or --data-volume")
+    model = ctx.compose(service).config(all_profiles=True)
+    state = registration_state(service)
+    revision = ctx.checkout(service).head() if service.is_git else None
     ctx.ui.fields([(key, str(item)) for key, item in raw.items()])
     for directory in service.data:
         stat = directory.stat()
@@ -221,10 +266,23 @@ def run(args: Namespace, ctx: Context) -> int:
         ctx.ui.warn(warning)
     ctx.ui.confirm(f"Register {service.name}?", assume_yes=args.yes)
     with service_lock(ctx.paths, "_registry"), service_lock(ctx.paths, service.name):
+        validate_files(service)
+        validate_source(ctx, service)
+        if (
+            registration_state(service) != state
+            or ctx.compose(service).config(all_profiles=True) != model
+            or (service.is_git and ctx.checkout(service).head() != revision)
+        ):
+            raise SrvrError("registration changed after confirmation; review and rerun add")
+        validate_model(service, model)
         validate_unique(ctx.paths, service)
         file = save_registration(ctx.paths, service, raw)
     ctx.ui.ok(f"registered {service.name}: {file}")
     next_steps(ctx, service)
+    return _activate(args, ctx, service)
+
+
+def _activate(args: Namespace, ctx: Context, service: Service) -> int:
     if args.start:
         ctx.shell.ensure_sudo()
         with service_lock(ctx.paths, service.name):
@@ -236,14 +294,15 @@ def run(args: Namespace, ctx: Context) -> int:
                     f"{service.name}: project is already running; registration saved, "
                     "use srvr update for deployment"
                 )
-            compose = ctx.compose(service)
-            if service.is_git:
-                compose.build(ctx.checkout(service).build_stamp())
-            compose.pull()
-            if service.migrate:
-                compose.run_once(service.migrate)
-            compose.up(pull=False)
-            if not report_ready(ctx, service):
+            taken = _prepare_start(ctx, service)
+            try:
+                start_prepared(ctx, service)
+                ready = report_ready(ctx, service)
+            except (SrvrError, OSError, KeyboardInterrupt):
+                _recover_start(ctx, service, taken)
+                raise
+            if not ready:
+                _recover_start(ctx, service, taken)
                 return 1
         if health.run(Namespace(services=[service.name]), ctx) != 0:
             return 1
@@ -251,3 +310,39 @@ def run(args: Namespace, ctx: Context) -> int:
         ctx.shell.ensure_sudo()
         backup.backup_one(ctx, service)
     return 0
+
+
+def _prepare_start(ctx: Context, service: Service) -> backups.Backup | None:
+    volumes.validate_registration(service, ctx.paths.services_dir)
+    expected = configuration.revision(service)
+    compose = ctx.compose(service)
+    if (
+        service.migrate
+        or service.is_git
+        or any("build" in spec for spec in compose.config()["services"].values())
+    ):
+        with deploymentprep.Candidate(ctx, service) as candidate:
+            images = candidate.prepare(
+                stamp=ctx.checkout(service).build_stamp() if service.is_git else None
+            )
+        compose.pin_images(images)
+    else:
+        compose.pull()
+        images = deploymentprep.retain_images(ctx, service, compose.config()["services"])
+        compose.pin_images(images)
+    configuration.validate(service, expected)
+    return (
+        backups.create(
+            ctx.shell, ctx.paths, service, reason="startup", version="initial configuration"
+        )
+        if service.has_data
+        else None
+    )
+
+
+def _recover_start(ctx: Context, service: Service, taken: backups.Backup | None) -> None:
+    ctx.compose(service).stop()
+    if taken:
+        backups.restore(ctx.shell, service, taken)
+        ctx.ui.warn(f"registered data restored from {taken.name}")
+    ctx.ui.error("startup failed; project remains stopped")

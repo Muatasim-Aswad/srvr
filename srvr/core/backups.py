@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import atomic, deploys, restoration
+from . import atomic, deploys, restoration, volumes
 from .errors import SrvrError
 from .paths import Paths, ensure_private_dir, keep_home_owner
 from .registry import Service
@@ -80,8 +80,13 @@ def find(paths: Paths, service: str, name: str) -> Backup:
 
 def create(shell: Shell, paths: Paths, service: Service, *, reason: str, version: str) -> Backup:
     """Archive the service's data directories. The caller must have stopped the service."""
-    if not service.data:
-        raise SrvrError(f"{service.name}: no data directories registered")
+    if not service.has_data:
+        raise SrvrError(f"{service.name}: no data registered")
+    volumes.validate_registration(service, paths.services_dir)
+    named = volumes.inspect(shell, service)
+    journal = paths.service_backups(service.name) / ".restore.json"
+    if journal.exists() or journal.is_symlink():
+        raise SrvrError(f"{service.name}: unfinished restore; retry restore before backing up")
     missing = [str(d) for d in service.data if not d.exists()]
     if missing:
         raise SrvrError(f"{service.name}: data directory missing: {', '.join(missing)}")
@@ -96,7 +101,7 @@ def create(shell: Shell, paths: Paths, service: Service, *, reason: str, version
         name = f"{now:%Y%m%dT%H%M%SZ}-{reason}-{counter:06d}"
         archive = directory / f"{name}{SUFFIX}"
     partial = directory / f".{name}{SUFFIX}.partial"
-    members = [str(d.relative_to("/")) for d in service.data]
+    members = [str(d.relative_to("/")) for d in (*service.data, *(v.mountpoint for v in named))]
 
     old_umask = os.umask(0o077)
     try:
@@ -107,6 +112,7 @@ def create(shell: Shell, paths: Paths, service: Service, *, reason: str, version
             sudo_first=True,
         )
         shell.run(["zstd", "--quiet", "--test", str(partial)])
+        volumes.revalidate(shell, service, named)
         meta = {
             "service": service.name,
             "time": iso(now),
@@ -114,6 +120,7 @@ def create(shell: Shell, paths: Paths, service: Service, *, reason: str, version
             "reason": reason,
             "version": version,
             "data": [str(d) for d in service.data],
+            "data_volumes": [v.record() for v in named],
             "sha256": _sha256(partial),
         }
         keep_home_owner(partial)
@@ -153,14 +160,22 @@ def restore(shell: Shell, service: Service, backup: Backup) -> list[Path]:
 
     Current data is moved aside (never deleted) to `<dir>.pre-restore-<time>`; those paths are
     returned. If extraction fails, the moved-aside data is put back."""
-    restoration.recover(shell, service.data, backup.path.parent / ".restore.json")
-    if not service.data:
-        raise SrvrError(f"{service.name}: no data directories registered")
+    named = volumes.inspect(shell, service)
+    restoration.recover(shell, service.data, backup.path.parent / ".restore.json", named=named)
+    if not service.has_data:
+        raise SrvrError(f"{service.name}: no data registered")
     recorded = backup.meta.get("data")
     if recorded is not None and recorded != [str(d) for d in service.data]:
         raise SrvrError(f"{backup.name}: its data paths {recorded} differ from the registry's")
     verify(shell, backup)
+    members = volumes.archive_members(backup.meta.get("data_volumes", []), named)
+    volumes.revalidate(shell, service, named)
 
     return restoration.replace(
-        shell, service.data, backup.path, backup.path.parent / ".restore.json"
+        shell,
+        service.data,
+        backup.path,
+        backup.path.parent / ".restore.json",
+        named=named,
+        members=members,
     )

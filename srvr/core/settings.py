@@ -13,6 +13,7 @@ from .errors import SrvrError
 class Settings:
     keep_backups: int = 5  # per service; older srvr backups are deleted after a new one
     health_timeout: int = 90  # seconds to wait for a service to become healthy
+    migration_timeout: int = 600
     backup_max_age_days: int = 7  # `doctor` warns when the newest backup is older
     disk_warn_percent: int = 85  # `doctor` warns above this root filesystem usage
     reboot_fail_days: int = 3  # `doctor` fails when a required reboot has waited this long

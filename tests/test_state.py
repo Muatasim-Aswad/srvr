@@ -42,6 +42,8 @@ class StateTest(TempDirTest):
         file = self.tmp / "srvr.toml"
         file.write_text("keep_backups = 3\n")
         self.assertEqual(Settings.load(file).keep_backups, 3)
+        file.write_text("migration_timeout = 17\n")
+        self.assertEqual(Settings.load(file).migration_timeout, 17)
         for bad in ("keep_backups = 0\n", "keep_backups = true\n", "colour = 1\n"):
             file.write_text(bad)
             with self.subTest(bad), self.assertRaises(SrvrError):

@@ -5,8 +5,9 @@ from __future__ import annotations
 from argparse import ArgumentParser, Namespace
 
 from srvr.commands._shared import add_yes, report_ready, version_of
-from srvr.core import backups, configuration, deploys, history
+from srvr.core import configsnapshots, configuration, deploys, history
 from srvr.core.context import Context
+from srvr.core.deploymenttransaction import apply_rollback
 from srvr.core.errors import SrvrError
 from srvr.core.lock import service_lock
 
@@ -32,7 +33,13 @@ def run(args: Namespace, ctx: Context) -> int:
     if args.data and not record.backup:
         raise SrvrError(f"{service.name}: that update took no backup, so --data is not possible")
 
-    current = version_of(ctx, service)
+    current = "recovery pending" if record.recovery_required else version_of(ctx, service)
+    current_files = configsnapshots.capture(
+        service,
+        extra=(configsnapshots.version_file(ctx.paths, service),),
+    )
+    runtime_file = ctx.paths.service_state(service.name) / "images.compose.json"
+    runtime_state = configsnapshots.read(runtime_file)
     target = record.before.version()
     ctx.ui.fields(
         [
@@ -49,24 +56,33 @@ def run(args: Namespace, ctx: Context) -> int:
         ctx.ui.warn("if the update migrated data, the old version may need it back: add --data")
     ctx.ui.confirm(f"Roll back {service.name}?", assume_yes=args.yes)
 
-    with service_lock(ctx.paths, service.name, allow_restore=args.data):
+    with service_lock(
+        ctx.paths, service.name, allow_restore=args.data, allow_deployment_recovery=True
+    ):
         configuration.validate(service, expected_configuration)
         if deploys.load_record(ctx.paths, service.name) != record:
             raise SrvrError(f"{service.name}: deployment record changed; rerun rollback")
-        if version_of(ctx, service) != current:
+        if not record.recovery_required and version_of(ctx, service) != current:
             raise SrvrError(f"{service.name}: running version changed; rerun rollback")
+        configsnapshots.validate(current_files)
+        configsnapshots.validate({str(runtime_file): runtime_state})
+        if record.after and record.after.configuration and not record.recovery_required:
+            configsnapshots.validate(configsnapshots.decode(record.after.configuration))
         ctx.shell.ensure_sudo()
-        if args.data:
-            assert record.backup
-            backup = backups.find(ctx.paths, service.name, record.backup)
-            ctx.compose(service).stop()
-            for path in backups.restore(ctx.shell, service, backup):
-                ctx.ui.line(f"  replaced data kept at {path}")
-        ctx.ui.step(f"switching to {target}")
-        deploys.apply(ctx, service, record.before)
+        apply_rollback(ctx, service, record, current_files, restore_data=args.data)
         ok = report_ready(ctx, service)
         record.status = "rolled-back" if ok else "failed"
+        record.recovery_required = not ok
         deploys.save_record(ctx.paths, record)
+        if ok and record.before.configuration is not None:
+            configsnapshots.save_baseline(
+                ctx.paths,
+                service,
+                configsnapshots.capture(
+                    service,
+                    extra=(configsnapshots.version_file(ctx.paths, service),),
+                ),
+            )
         history.record(
             ctx.paths,
             service.name,

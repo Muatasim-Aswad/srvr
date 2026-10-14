@@ -14,6 +14,8 @@ from .errors import SrvrError
 
 KINDS = ("git", "image")
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+PROFILE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+VOLUME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
 
 # key -> (type, required)
 SCHEMA: dict[str, tuple[type, bool]] = {
@@ -27,6 +29,10 @@ SCHEMA: dict[str, tuple[type, bool]] = {
     "branch": (str, False),
     "migrate": (str, False),
     "data": (list, False),
+    "data_volumes": (list, False),
+    "profiles": (list, False),
+    "allow_public_ports": (bool, False),
+    "allow_host_network": (bool, False),
     "health": (str, False),
     "url": (str, False),
     "version_url": (str, False),
@@ -52,10 +58,18 @@ class Service:
     description: str = ""
     source: Path | None = None  # registry file
     update_component: str | None = None  # default component for image updates
+    data_volumes: tuple[str, ...] = ()  # actual Docker volume names, never mountpoint paths
+    profiles: tuple[str, ...] = ()
+    allow_public_ports: bool = False
+    allow_host_network: bool = False
 
     @property
     def is_git(self) -> bool:
         return self.kind == "git"
+
+    @property
+    def has_data(self) -> bool:
+        return bool(self.data or self.data_volumes)
 
 
 def _check_type(path: Path, key: str, value: Any, expected: type) -> None:
@@ -120,6 +134,10 @@ def parse_service(name: str, raw: dict[str, Any], path: Path) -> Service:
     env_file = _absolute(path, "env_file", raw["env_file"]) if "env_file" in raw else None
     data = tuple(_absolute(path, "data", item) for item in raw.get("data", []))
     _check_data(path, data)
+    for key, pattern in (("profiles", PROFILE_RE), ("data_volumes", VOLUME_RE)):
+        values = raw.get(key, [])
+        if len(set(values)) != len(values) or any(not pattern.fullmatch(v) for v in values):
+            raise SrvrError(f"{path}: {key} must contain unique valid names")
     for key in ("health", "url", "version_url"):
         if key in raw and not raw[key].startswith(("http://", "https://")):
             raise SrvrError(f"{path}: {key} must be an http(s) URL")
@@ -146,6 +164,10 @@ def parse_service(name: str, raw: dict[str, Any], path: Path) -> Service:
         description=raw.get("description", ""),
         source=path,
         update_component=raw.get("update_component"),
+        data_volumes=tuple(raw.get("data_volumes", [])),
+        profiles=tuple(raw.get("profiles", [])),
+        allow_public_ports=raw.get("allow_public_ports", False),
+        allow_host_network=raw.get("allow_host_network", False),
     )
 
 
@@ -171,6 +193,8 @@ def conflict(first: Service, second: Service) -> str | None:
             a, b = left.resolve(), right.resolve()
             if a.is_relative_to(b) or b.is_relative_to(a):
                 return "data directories"
+    if set(first.data_volumes) & set(second.data_volumes):
+        return "named volumes"
     return None
 
 

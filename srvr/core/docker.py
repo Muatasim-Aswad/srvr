@@ -14,6 +14,7 @@ _FIELDS = (
     "{{.State}}",
     "{{.Status}}",
     "{{.ID}}",
+    '{{.Label "com.docker.compose.oneoff"}}',
 )
 PS_FORMAT = "\t".join(_FIELDS)
 
@@ -26,6 +27,7 @@ class Container:
     state: str  # running, exited, restarting, created, paused, dead
     status: str  # human status, e.g. "Up 3 hours (healthy)"
     id: str
+    one_off: bool = False
 
     @property
     def health(self) -> str | None:
@@ -43,8 +45,19 @@ def parse_ps(text: str) -> list[Container]:
     containers = []
     for line in text.splitlines():
         parts = line.split("\t")
-        if len(parts) == len(_FIELDS):
-            containers.append(Container(*parts))
+        if len(parts) in (len(_FIELDS), len(_FIELDS) - 1):
+            project, component, name, state, status, cid = parts[:6]
+            containers.append(
+                Container(
+                    project,
+                    component,
+                    name,
+                    state,
+                    status,
+                    cid,
+                    one_off=len(parts) == 7 and parts[6].lower() == "true",
+                )
+            )
     return containers
 
 
@@ -74,19 +87,26 @@ class Docker:
         self.shell = shell
         self._containers: list[Container] | None = None
 
-    def containers(self, *, refresh: bool = False) -> list[Container]:
+    def containers(self, *, refresh: bool = False, timeout: float | None = None) -> list[Container]:
         if self._containers is None or refresh:
-            out = self.shell.run(["docker", "ps", "--all", "--format", PS_FORMAT], sudo=True).stdout
+            out = self.shell.run(
+                ["docker", "ps", "--all", "--format", PS_FORMAT], sudo=True, timeout=timeout
+            ).stdout
             self._containers = parse_ps(out)
         return self._containers
 
     def project_containers(
-        self, project: str, *, exclude: Iterable[str] = (), refresh: bool = False
+        self,
+        project: str,
+        *,
+        exclude: Iterable[str] = (),
+        refresh: bool = False,
+        timeout: float | None = None,
     ) -> list[Container]:
         skipped = set(exclude)
         return [
             c
-            for c in self.containers(refresh=refresh)
+            for c in self.containers(refresh=refresh, timeout=timeout)
             if c.project == project and c.component not in skipped
         ]
 

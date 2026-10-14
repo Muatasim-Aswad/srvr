@@ -48,8 +48,10 @@ class Context:
         return select(self.registry, [name])[0]
 
     def compose(self, service: Service) -> Compose:
+        from .deploymentprep import configured
+
         return Compose(
-            service,
+            configured(self, service),
             self.shell,
             runtime_file=self.paths.service_state(service.name) / "images.compose.json",
         )

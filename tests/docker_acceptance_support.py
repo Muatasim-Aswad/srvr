@@ -32,6 +32,8 @@ class DockerAcceptanceTest(unittest.TestCase):
         directory = tempfile.TemporaryDirectory(prefix="srvr-acceptance-")
         self.addCleanup(directory.cleanup)
         self.tmp = Path(directory.name)
+        temporary = self.tmp / "temporary"
+        temporary.mkdir()
         self.project = "srvr-acceptance-" + uuid.uuid4().hex[:12]
         self.package_root = Path(
             os.environ.get("SRVR_TEST_PACKAGE_ROOT", FIXTURES.parents[2])
@@ -43,6 +45,7 @@ class DockerAcceptanceTest(unittest.TestCase):
             "XDG_CONFIG_HOME": str(self.tmp / "config"),
             "XDG_STATE_HOME": str(self.tmp / "state"),
             "XDG_DATA_HOME": str(self.tmp / "share"),
+            "TMPDIR": str(temporary),
             "NO_COLOR": "1",
             "COMPOSE_ANSI": "never",
             "COMPOSE_MENU": "false",
@@ -64,8 +67,11 @@ class DockerAcceptanceTest(unittest.TestCase):
             "--format",
             "{{.Id}}",
         ).stdout.strip()
+        self.start_registry()
+        self.base = f"{self.registry_host}/{self.project}/base:1"
         self.docker("image", "tag", self.base_id, self.base)
         self.images.update((self.base, self.app_image))
+        self.docker("push", self.base)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
@@ -78,7 +84,7 @@ class DockerAcceptanceTest(unittest.TestCase):
         )
         settings = self.tmp / "config" / "srvr" / "srvr.toml"
         settings.parent.mkdir(parents=True)
-        settings.write_text("health_timeout = 5\n")
+        settings.write_text("health_timeout = 12\nmigration_timeout = 60\n")
 
     def install_adapters(self):
         binaries = self.tmp / "bin"
@@ -155,6 +161,7 @@ class DockerAcceptanceTest(unittest.TestCase):
 services:
   db:
     image: ${TEST_BASE_IMAGE:?}
+    pull_policy: never
     user: ${TEST_USER:?}
     command: [python, /fixture/database.py]
     volumes:
@@ -197,7 +204,7 @@ services:
     profiles: [tools]
 """
 
-    def prepare_source(self):
+    def prepare_source(self, *options):
         self.upstream.mkdir()
         self.git(self.upstream, "init", "--quiet", "--initial-branch=main")
         (self.upstream / "database.py").write_text((FIXTURES / "database.py").read_text())
@@ -227,6 +234,7 @@ services:
             f"http://127.0.0.1:{self.port}/health",
             "--version-url",
             f"http://127.0.0.1:{self.port}/version.json",
+            *options,
             "-y",
         )
         self.srvr("update", "example", "--force", "-y")
@@ -236,7 +244,9 @@ services:
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=5) as response:
             return json.load(response)
 
-    def prepare_registry(self):
+    def start_registry(self):
+        if self.registry:
+            return
         self.registry = self.project + "-registry"
         self.docker(
             "run",
@@ -254,6 +264,9 @@ services:
         port = self.docker("port", self.registry, "5000/tcp").stdout.strip().rsplit(":", 1)[1]
         self.registry_host = f"localhost:{port}"
         self.wait_http(f"http://127.0.0.1:{port}/v2/")
+
+    def prepare_registry(self, *, register=True):
+        self.start_registry()
         self.work.mkdir()
         (self.work / "Dockerfile").write_text(DOCKERFILE)
         (self.work / "database.py").write_text((FIXTURES / "database.py").read_text())
@@ -285,6 +298,7 @@ services:
         database_section = database_section.replace(
             "image: ${TEST_BASE_IMAGE:?}", f"image: {database}"
         )
+        database_section = database_section.replace("    pull_policy: never\n", "")
         app = f"""\
   app:
     image: {refs[0]}
@@ -297,6 +311,8 @@ services:
     stop_grace_period: 1s
 """
         (self.work / "compose.yaml").write_text("services:\n" + database_section + app)
+        if not register:
+            return refs, database
         self.srvr(
             "add",
             "example",
@@ -366,8 +382,8 @@ services:
             *self.images,
             *(
                 f"{namespace}/{self.project}-{name}:latest"
-                for namespace in ("srvr-prev", "srvr-preparing")
-                for name in ("app", "db")
+                for namespace in ("srvr-prev", "srvr-preparing", "srvr-ready")
+                for name in ("app", "db", "migrate", "worker", "disabled")
             ),
         ]
         self.docker("image", "rm", *images, check=False)

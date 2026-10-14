@@ -7,7 +7,7 @@ from argparse import ArgumentParser, Namespace
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from srvr.core import history
+from srvr.core import deploymentprep, history
 from srvr.core.context import Context
 from srvr.core.deploys import wait_ready
 from srvr.core.docker import summarize
@@ -78,7 +78,8 @@ def version_of(ctx: Context, service: Service) -> str:
         checkout = ctx.checkout(service)
         return f"{checkout.short('HEAD')} ({checkout.branch() or 'detached'})"
     refs = ctx.compose(service).image_refs()
-    return ", ".join(sorted({short_image(ref) for ref in refs.values()})) or "-"
+    shown = deploymentprep.display_refs(ctx, service, refs)
+    return ", ".join(sorted({short_image(ref) for ref in shown.values()})) or "-"
 
 
 def last_event(ctx: Context, service: Service) -> str:

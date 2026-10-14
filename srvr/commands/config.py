@@ -42,6 +42,10 @@ def run(args: Namespace, ctx: Context) -> int:
         [
             ("registry", str(service.source)),
             ("compose", ", ".join(str(f) for f in service.compose_files)),
+            ("profiles", ", ".join(service.profiles) or "- (unprofiled components only)"),
+            ("public ports", "allowed" if service.allow_public_ports else "loopback only"),
+            ("host network", "allowed" if service.allow_host_network else "refused"),
+            ("data volumes", ", ".join(service.data_volumes) or "-"),
         ]
     )
     for file in files:
