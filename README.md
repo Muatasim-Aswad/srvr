@@ -9,7 +9,7 @@ Follow one documented path from Debian to private apps, encrypted off-server bac
 - **A setup that fits together:** guides choose Debian, Docker, Tailscale, restic with Backblaze B2, and Healthchecks.io, with configuration, checks, and recovery steps.
 - **One operating workflow:** see status, health, versions, logs, and deployment history across your apps.
 - **Update with a recovery path:** prepare builds or images, back up registered data, check health, and roll back failed switches.
-- **Keep your Compose projects:** register source checkouts or published-image stacks, with host settings in env files or external overrides.
+- **Keep your Compose projects:** select source builds or published images from the same files, with fixed profiles and host settings in env files or external overrides.
 
 ## Get started
 
@@ -40,9 +40,9 @@ srvr update notes
 
 srvr prepares the new build while the app serves, then stops the project, backs up registered data, runs any configured migration, starts the new version, and checks health. A failed switch triggers rollback to the previous version and its data backup.
 
-To undo a successful update later, `srvr rollback notes --data` restores the previous version and its pre-update data backup. Published-image apps use an explicit version, for example `srvr update notes --component app --image vendor/notes:1.2.3`.
+To undo a successful update later, `srvr rollback notes --data` restores the previous version and its pre-update data backup. Published-image apps use explicit versions, for example `srvr update notes --component app --image vendor/notes:1.2.3`. Repeat `--set-image COMPONENT=IMAGE` to deploy related images together. Registered configuration changes use `srvr update notes --config` or staged `--config-file` replacements.
 
-Read [Updates and rollback](docs/updates.md) before your first deployment. Backups cover registered data directories; named Docker volumes need a separate backup plan. See [operational limits](SECURITY.md#operational-limits).
+Read [Updates and rollback](docs/updates.md) before your first deployment. Backups cover registered directories and explicitly registered plain local Docker named volumes. External databases, shared storage and anonymous volumes need their own recovery plan. See [operational limits](SECURITY.md#operational-limits).
 
 ## Everyday commands
 

@@ -6,7 +6,7 @@
 
 - `srvr/cli.py` discovers every public module in `srvr/commands/`; each module is one command (`HELP`, `configure(parser)`, `run(args, ctx) -> int`). Add a command by adding a file.
 - `srvr/commands/_shared.py` holds argument and display helpers used by several commands.
-- `srvr/core/` holds the logic commands compose: `registry`, `settings`, `paths`, `shell` (all subprocesses), `docker`, `compose`, `git`, `health`, `backups`, `snapshots`, `deploys` (pre-update version records and rollback), `history`, `lock`, `composefile`, `envfile`, `ui`.
+- `srvr/core/` holds shared domain/system operations: registry/configuration, Shell (all subprocesses), Docker/Compose/Git, health, backup/snapshot/volume restoration, deployment planning/preparation/transactions, configuration snapshots, startup/migrations, history and locks.
 
 ## Workflow
 
@@ -46,9 +46,9 @@ mise exec -- scripts/verify --package-only
 
 Read the repository's `AGENTS.md` for contribution and safety rules. Regression tests cover failed directory switches, extraction errors, interruption/retry recovery, snapshot replacement, stale confirmations, lock contention and protected rollback backups.
 
-Acceptance tests require a working local Docker daemon, Git, GNU tar, zstd, and the cached images `python:3.14.6-slim-trixie` and `registry:3`. They create isolated projects, repositories, loopback ports and data directories, then remove their containers, networks and image tags. Builds and image pushes/pulls are real; only sudo is adapted to execute as the test user, with containers using that user's UID/GID. They do not test sudo authentication or privileged ownership restoration.
+Acceptance tests require a working local Docker daemon, Git, GNU tar, zstd, GNU coreutils/findutils, util-linux and the cached images `alpine:latest`, `python:3.14.6-slim-trixie` and `registry:3`. They create isolated projects, repositories, loopback ports, directories and volumes, then remove only owned fixture resources and image tags. Builds and image pushes/pulls are real; sudo authentication is adapted. Ordinary app fixtures use the test user's UID/GID; disposable root helpers test volume ownership/mode preservation. The suite does not test live-host sudo authentication.
 
-The acceptance scenarios cover a source update → rollback with data → update again, committed SQLite migration failure, an actual unhealthy app, and a real registry pull that selects only the app plus a missing-tag failure that preserves the running installation. Assertions check served app state and commit records, clean Git checkouts, unchanged database images and registry manifest requests. Test failures have also been verified using disposable code copies with stale pins, omitted data restoration, and broad image pulls.
+The 21 Docker scenarios cover source/prebuilt/mixed stacks, same-Compose source/image modes, env/override versions, coordinated images and preparation failures, configuration rollback, committed explicit/automatic migrations, timeouts, selected-component readiness, named-volume archive/snapshot/restore and interruption guards, fixed profiles and network opt-ins. Assertions check served content, data, exact image IDs, metadata, clean checkouts and owned registry requests. Default regressions also use real temporary Git remotes for deleted-default explicit refs and real filesystem paths for candidate symlink refusal. Older Engine/Compose versions and general power-loss recovery remain outside this gate.
 
 To select compatibility tools without changing the system installation, set `SRVR_TEST_PYTHON` to a Python executable and `SRVR_TEST_COMPOSE` to a standalone Compose binary. The tests invoke srvr through those tools. Compatibility checks use Python 3.13 and Compose 2.26.1 on the local Docker daemon; this does not reproduce the server's Docker Engine version. `SRVR_TEST_BASE_IMAGE` and `SRVR_TEST_REGISTRY_IMAGE` can select pre-cached fixture images.
 
@@ -58,7 +58,7 @@ On a development machine with Docker access:
 
 ```sh
 scripts/build-deb
-scripts/test-deb dist/srvr_0.1.0-1_all.deb
+scripts/test-deb dist/srvr_0.2.0-1_all.deb
 ```
 
 The builder copies only `packaging/source-files.txt` entries into a temporary source snapshot, installs build tools in a digest-pinned Debian 13 container using a fixed Debian package snapshot, runs unit tests, generates offline HTML/Markdown and `srvr.1`, builds with debhelper, and checks lintian and exact package contents. Artifacts and `SHA256SUMS` go in `dist/`. Builds run as your UID/GID; they do not install anything on the host. Refresh the base digest and Debian snapshot together when updating build tools.

@@ -91,7 +91,9 @@ def validate_selection(args: Namespace, services: list[Service]) -> None:
     if (args.ref or args.image or component or selections or config or capture) and len(
         services
     ) != 1:
-        raise SrvrError("--ref, --image and --component apply to exactly one service")
+        raise SrvrError(
+            "version selection and configuration deployment require exactly one service"
+        )
     if args.ref and any(not s.is_git for s in services):
         raise SrvrError("--ref is for git services; use --image for image services")
     if (args.image or selections) and any(s.is_git for s in services):

@@ -1,6 +1,6 @@
 [project]
 name = "srvr"
-version = "0.1.0"
+version = "0.2.0"
 description = "Manage the Docker Compose services on a single Docker host"
 requires-python = ">=3.11"
 license = "MIT"

@@ -20,7 +20,14 @@ class ComposeCommandTest(TempDirTest):
         )
 
     def test_refuses_down_with_volumes(self) -> None:
-        for bad in (["down", "-v"], ["down", "--volumes"]):
+        for bad in (
+            ["down", "-v"],
+            ["down", "--volumes"],
+            ["down", "--volumes=true"],
+            ["down", "--volumes=1"],
+            ["down", "-v=true"],
+            ["down", "-vt0"],
+        ):
             with self.subTest(bad), self.assertRaises(SrvrError):
                 refuse_destructive(bad)
         refuse_destructive(["down"])

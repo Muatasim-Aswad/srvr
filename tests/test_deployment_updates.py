@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from srvr.commands import rollback, update
-from srvr.core import configsnapshots, deploys, envfile
+from srvr.core import configsnapshots, deploymentprep, deploys, envfile
 from srvr.core.composefile import find_image
 from srvr.core.context import Context
 from srvr.core.errors import SrvrError
@@ -563,6 +563,46 @@ class GitPreparationTest(TempDirTest):
         self.assertEqual(self.shell.running, running)
         self.assertNotIn("pull", self.actions())
         self.assertNotIn("stop", self.actions())
+
+
+class CandidatePathSafetyTest(TempDirTest):
+    def test_git_target_cannot_write_through_compose_symlinks(self):
+        for parent_link in (False, True):
+            with self.subTest(parent_link=parent_link):
+                work = self.tmp / f"project-{parent_link}"
+                work.mkdir()
+                outside = self.tmp / f"outside-{parent_link}"
+                outside.mkdir()
+                sentinel = outside / "compose.json"
+                sentinel.write_text('{"services":{"app":{"image":"app:1"}}}\n')
+                sentinel.chmod(0o640)
+                original = configsnapshots.read(sentinel)
+                if parent_link:
+                    (work / "config").symlink_to(outside, target_is_directory=True)
+                    compose = work / "config" / sentinel.name
+                else:
+                    compose = work / sentinel.name
+                    compose.symlink_to(sentinel)
+                shell = NoSudoShell()
+                for args in (
+                    ("init", "--quiet", "-b", "main"),
+                    ("config", "user.email", "fixture@example.invalid"),
+                    ("config", "user.name", "Fixture"),
+                    ("add", "."),
+                    ("commit", "--quiet", "-m", "symlink target"),
+                ):
+                    shell.run(["git", "-C", str(work), *args])
+                service = self.service(
+                    kind="git", branch="main", workdir=str(work), compose_files=[str(compose)]
+                )
+                ctx = Context(paths=self.paths, shell=shell, ui=UI())
+                commit = ctx.checkout(service).head()
+                with (
+                    self.assertRaisesRegex(SrvrError, "configuration.*symlink"),
+                    deploymentprep.Candidate(ctx, service, commit=commit),
+                ):
+                    pass
+                self.assertEqual(configsnapshots.read(sentinel), original)
 
 
 class HybridImageDeploymentTest(TempDirTest):

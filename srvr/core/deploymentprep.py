@@ -46,6 +46,11 @@ def check_model(service: Service, model: dict[str, Any]) -> None:
                 ) from exc
 
 
+def _check_configuration_path(root: Path, target: Path) -> None:
+    if target.resolve() != target or not target.is_relative_to(root):
+        raise SrvrError("candidate configuration contains a symlink or unsafe path")
+
+
 class Candidate:
     def __init__(
         self,
@@ -109,6 +114,7 @@ class Candidate:
                 target = work / path.relative_to(service.workdir)
             else:
                 target = self.root / "external" / str(index) / path.name
+            _check_configuration_path(self.root, target)
             mapping[path] = target
             if path in files or (
                 not target.exists()

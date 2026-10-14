@@ -6,13 +6,13 @@ Choose a Debian package for normal use or a Git checkout for development. Both u
 
 ## Debian package
 
-Download the [v0.1.0 Debian package](https://github.com/Muatasim-Aswad/srvr/releases/download/v0.1.0/srvr_0.1.0-1_all.deb) and [SHA256SUMS](https://github.com/Muatasim-Aswad/srvr/releases/download/v0.1.0/SHA256SUMS), or use `curl` below. From your download directory, verify the checksum before installing:
+Download the [v0.2.0 Debian package](https://github.com/Muatasim-Aswad/srvr/releases/download/v0.2.0/srvr_0.2.0-1_all.deb) and [SHA256SUMS](https://github.com/Muatasim-Aswad/srvr/releases/download/v0.2.0/SHA256SUMS), or use `curl` below. From your download directory, verify the checksum before installing:
 
 ```sh
-curl --fail --location --remote-name https://github.com/Muatasim-Aswad/srvr/releases/download/v0.1.0/srvr_0.1.0-1_all.deb &&
-curl --fail --location --remote-name https://github.com/Muatasim-Aswad/srvr/releases/download/v0.1.0/SHA256SUMS &&
+curl --fail --location --remote-name https://github.com/Muatasim-Aswad/srvr/releases/download/v0.2.0/srvr_0.2.0-1_all.deb &&
+curl --fail --location --remote-name https://github.com/Muatasim-Aswad/srvr/releases/download/v0.2.0/SHA256SUMS &&
 sha256sum --ignore-missing --check SHA256SUMS &&
-sudo apt install ./srvr_0.1.0-1_all.deb &&
+sudo apt install ./srvr_0.2.0-1_all.deb &&
 srvr --version &&
 srvr -h
 ```

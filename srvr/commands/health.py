@@ -12,7 +12,7 @@ from srvr.core.context import Context
 from srvr.core.deploys import container_probe
 from srvr.core.health import Probe, build_probe, probe
 
-HELP = "Check each service's loopback and private HTTPS endpoints, and the build it serves"
+HELP = "Check selected containers, loopback/private HTTPS endpoints, and the served build"
 
 
 def configure(parser: ArgumentParser) -> None:

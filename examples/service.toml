@@ -2,8 +2,8 @@
 
 description = "Short description shown by `srvr info`"   # optional
 
-# "git": built from a Git checkout in workdir (needs branch)
-# "image": pinned published image; `srvr update --image` edits the first compose file's image line
+# "git": build source components and pull image-only dependencies (needs branch)
+# "image": pull published images even when the same Compose services also declare build
 kind = "git"
 branch = "main"                                   # git only: default deploy branch
 # update_component = "app"                        # image only: default component to upgrade
@@ -16,6 +16,10 @@ config_files = ["/home/admin/.config/example/config.env"]  # optional; defaults 
 
 migrate = "migrate"                                # optional; one-off Compose service run before start
 data = ["/home/admin/.local/share/example"]         # optional; directories that backups archive
+# data_volumes = ["example_database"]              # actual Docker names; plain local volumes only
+# profiles = ["worker"]                            # fixed active profiles; unprofiled services always run
+# allow_public_ports = true                        # deliberate non-loopback bindings in Compose
+# allow_host_network = true                        # separate opt-in; bypasses port restrictions
 
 health = "http://127.0.0.1:8080/health"            # optional; without it, container state is used
 url = "https://example.<tailnet>.ts.net"         # optional; private HTTPS URL
