@@ -74,17 +74,16 @@ notes    healthy     ok      4b73a1c              update ok    https://notes.exa
 tasks    healthy     ok      example/tasks:1.2.3  backup ok    -
 ```
 
-## Guides and reference
+## Documentation
 
-| I want to… | Read |
-|---|---|
-| Set up a private home server | [Bootstrap](docs/bootstrap.md) |
-| Install the CLI or read docs offline | [Installation](docs/install.md) |
-| Register an app or find its configuration | [Services](docs/services.md) |
-| Look up commands or automate operations | [Command reference](docs/commands.md) |
-| Understand updates, rollback, or build stamps | [Updates](docs/updates.md) |
-| Set up backups or restore data | [Backups](docs/backups.md) |
-| Receive health and backup alerts | [Monitoring](docs/monitoring.md) |
-| Work on srvr or run its tests | [Development](docs/development.md) |
+- [Bootstrap](docs/bootstrap.md) — Set up a private home server.
+- [Installation](docs/install.md) — Install the CLI or read its documentation offline.
+- [Services](docs/services.md) — Register a Compose app and configure its deployment.
+- [Command reference](docs/commands.md) — Look up commands and options for daily use or automation.
+- [Updates](docs/updates.md) — Update apps and recover from a failed deployment.
+- [Backups](docs/backups.md) — Set up off-server backups and restore app data.
+- [Security](SECURITY.md) — Understand the supported trust boundary and report vulnerabilities.
+- [Development](docs/development.md) — Find where the code lives, run checks, and get started contributing.
+- [Release notes](docs/release-notes.md) — See what changed in each release.
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Release notes](docs/release-notes.md). Licensed under [MIT](LICENSE).
+Licensed under [MIT](LICENSE).
