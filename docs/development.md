@@ -1,12 +1,27 @@
 # Development and testing
 
-[README](../README.md) · [Updates](updates.md)
+srvr is a Python CLI that uses the standard library and calls tools such as Docker Compose and Git to manage apps on a private server.
 
-## Code layout
+## Repository layout
+
+```text
+srvr/
+├── srvr/           Python CLI and deployment logic
+│   ├── cli.py      Command discovery and dispatch
+│   ├── commands/   Command definitions and output helpers
+│   └── core/       Registry, Docker Compose, Git, health, backup, and recovery operations
+├── tests/          Python tests and Docker and Debian acceptance checks
+├── debian/         Debian package metadata
+├── packaging/      Debian package build inputs
+├── scripts/        Verification, packaging, and offline documentation tooling
+└── docs/           Operations guides and command reference
+```
 
 - `srvr/cli.py` discovers every public module in `srvr/commands/`; each module is one command (`HELP`, `configure(parser)`, `run(args, ctx) -> int`). Add a command by adding a file.
 - `srvr/commands/_shared.py` holds argument and display helpers used by several commands.
 - `srvr/core/` holds shared domain/system operations: registry/configuration, Shell (all subprocesses), Docker/Compose/Git, health, backup/snapshot/volume restoration, deployment planning/preparation/transactions, configuration snapshots, startup/migrations, history and locks.
+
+[README](../README.md) · [Updates](updates.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Workflow
 

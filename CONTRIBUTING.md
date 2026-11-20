@@ -14,6 +14,7 @@ Run `mise run verify-all` for deployment, recovery, or packaging changes. It nee
 
 ## Pull requests
 
+- Write short, specific commit subjects and pull request titles that start with an action verb and omit type prefixes. Review the pull request title before squash merging because it can become the commit subject.
 - Explain the problem, resulting behavior, privacy implications, migrations or compatibility changes, and checks run. Say when these implications do not apply.
 - Add a regression test for a bug. Exercise real files, Git, or disposable Docker at existing boundaries; inject failures at process/filesystem boundaries.
 - Preserve service locks, rollback images, backups, and recovery journals. Update the relevant guide when behavior changes.
